@@ -1,11 +1,12 @@
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
-using PaymentFlowCloud.Api.Contracts;
+using PaymentFlowCloud.Application.Abstractions;
+using PaymentFlowCloud.Application.Contracts;
 using PaymentFlowCloud.Domain.Entities;
 using RabbitMQ.Client;
 
-namespace PaymentFlowCloud.Api.Messaging;
+namespace PaymentFlowCloud.Infrastructure.Messaging;
 
 public class RabbitMqPaymentEventPublisher : IPaymentEventPublisher
 {

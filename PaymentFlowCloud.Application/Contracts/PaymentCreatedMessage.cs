@@ -1,4 +1,4 @@
-namespace PaymentFlowCloud.Api.Contracts;
+namespace PaymentFlowCloud.Application.Contracts;
 
 public class PaymentCreatedMessage
 {

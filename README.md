@@ -1104,8 +1104,8 @@ Update payment status
 [x] Create POST /payments
 [x] Verify SQL persistence
 [x] Add RabbitMQ publisher
-[ ] Add Worker consumer
-[ ] Update payment status
+[x] Add Worker consumer
+[x] Update payment status
 ```
 
 ---

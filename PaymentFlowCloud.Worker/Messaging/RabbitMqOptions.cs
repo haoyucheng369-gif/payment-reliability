@@ -1,4 +1,4 @@
-namespace PaymentFlowCloud.Api.Messaging;
+namespace PaymentFlowCloud.Worker.Messaging;
 
 public class RabbitMqOptions
 {
