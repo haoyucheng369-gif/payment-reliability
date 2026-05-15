@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="PaymentFlowCloud.Api/PaymentFlowCloud.Api.csproj" />
+  <Project Path="PaymentFlowCloud.Application/PaymentFlowCloud.Application.csproj" />
+  <Project Path="PaymentFlowCloud.Domain/PaymentFlowCloud.Domain.csproj" />
+  <Project Path="PaymentFlowCloud.Infrastructure/PaymentFlowCloud.Infrastructure.csproj" />
+</Solution>
