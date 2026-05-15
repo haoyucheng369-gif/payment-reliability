@@ -1,8 +1,8 @@
-# PaymentSim
+# PaymentFlowCloud
 
 ## Overview
 
-PaymentSim is a cloud-oriented distributed payment reliability simulation platform built with ASP.NET Core and Azure-oriented architecture concepts.
+PaymentFlowCloud is a cloud-oriented distributed payment reliability simulation platform built with ASP.NET Core and Azure-oriented architecture concepts.
 
 The project does NOT aim to become a real payment platform.
 
@@ -128,17 +128,17 @@ The goal is:
 # Repository Structure
 
 ```text
-PaymentSim/
+PaymentFlowCloud/
 │
 ├── src/
-│   ├── PaymentSim.Api
-│   ├── PaymentSim.Application
-│   ├── PaymentSim.Domain
-│   ├── PaymentSim.Infrastructure
+│   ├── PaymentFlowCloud.Api
+│   ├── PaymentFlowCloud.Application
+│   ├── PaymentFlowCloud.Domain
+│   ├── PaymentFlowCloud.Infrastructure
 │   │
-│   ├── PaymentSim.Worker
-│   ├── PaymentSim.ProviderMock
-│   ├── PaymentSim.WebhookReceiver
+│   ├── PaymentFlowCloud.Worker
+│   ├── PaymentFlowCloud.ProviderMock
+│   ├── PaymentFlowCloud.WebhookReceiver
 │   │
 │   └── Shared
 │       ├── Contracts
@@ -406,7 +406,7 @@ Future phases include:
 The project includes:
 
 ```text
-PaymentSim.ProviderMock
+PaymentFlowCloud.ProviderMock
 ```
 
 This simulates:
@@ -1103,7 +1103,7 @@ Update payment status
 [x] Create initial migration
 [x] Create POST /payments
 [x] Verify SQL persistence
-[ ] Add RabbitMQ publisher
+[x] Add RabbitMQ publisher
 [ ] Add Worker consumer
 [ ] Update payment status
 ```
@@ -1112,7 +1112,7 @@ Update payment status
 
 # Final Vision
 
-PaymentSim is intended to become:
+PaymentFlowCloud is intended to become:
 
 ## A practical distributed payment reliability playground
 

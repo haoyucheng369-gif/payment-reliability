@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using PaymentFlowCloud.Api.Contracts;
+using PaymentFlowCloud.Api.Messaging;
 using PaymentFlowCloud.Domain.Entities;
 using PaymentFlowCloud.Infrastructure.Persistence;
 
@@ -15,6 +16,10 @@ builder.Services.AddDbContext<PaymentDbContext>(options =>
         builder.Configuration.GetConnectionString("SqlServer"));
 });
 
+builder.Services.Configure<RabbitMqOptions>(
+    builder.Configuration.GetSection("RabbitMQ"));
+builder.Services.AddSingleton<IPaymentEventPublisher, RabbitMqPaymentEventPublisher>();
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
@@ -27,7 +32,9 @@ app.UseHttpsRedirection();
 
 app.MapPost("/payments", async (
     CreatePaymentRequest request,
-    PaymentDbContext dbContext) =>
+    PaymentDbContext dbContext,
+    IPaymentEventPublisher paymentEventPublisher,
+    CancellationToken cancellationToken) =>
 {
     var payment = new Payment
     {
@@ -42,7 +49,9 @@ app.MapPost("/payments", async (
 
     dbContext.Payments.Add(payment);
 
-    await dbContext.SaveChangesAsync();
+    await dbContext.SaveChangesAsync(cancellationToken);
+
+    await paymentEventPublisher.PublishPaymentCreatedAsync(payment, cancellationToken);
 
     return Results.Ok(payment);
 });
