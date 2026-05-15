@@ -1,6 +1,6 @@
 using PaymentFlowCloud.Domain.Entities;
 
-namespace PaymentFlowCloud.Api.Messaging;
+namespace PaymentFlowCloud.Application.Abstractions;
 
 public interface IPaymentEventPublisher
 {

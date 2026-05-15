@@ -3,4 +3,5 @@
   <Project Path="PaymentFlowCloud.Application/PaymentFlowCloud.Application.csproj" />
   <Project Path="PaymentFlowCloud.Domain/PaymentFlowCloud.Domain.csproj" />
   <Project Path="PaymentFlowCloud.Infrastructure/PaymentFlowCloud.Infrastructure.csproj" />
+  <Project Path="PaymentFlowCloud.Worker/PaymentFlowCloud.Worker.csproj" />
 </Solution>

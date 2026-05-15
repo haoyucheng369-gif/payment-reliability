@@ -17,5 +17,10 @@ public class PaymentDbContext : DbContext
         modelBuilder.Entity<Payment>()
             .Property(payment => payment.Amount)
             .HasPrecision(18, 2);
+
+        modelBuilder.Entity<Payment>()
+            .Property(payment => payment.Status)
+            .HasConversion<string>()
+            .HasMaxLength(32);
     }
 }
