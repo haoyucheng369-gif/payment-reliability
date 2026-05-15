@@ -8,6 +8,7 @@ public class PaymentRepository(PaymentDbContext dbContext) : IPaymentRepository
 {
     public async Task AddAsync(Payment payment, CancellationToken cancellationToken = default)
     {
+        // 仓储只封装持久化入口，不承载业务规则。
         await dbContext.Payments.AddAsync(payment, cancellationToken);
     }
 

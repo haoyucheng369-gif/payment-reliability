@@ -1,24 +1,13 @@
 using PaymentFlowCloud.Worker;
-using PaymentFlowCloud.Application.Abstractions;
-using PaymentFlowCloud.Application.Payments;
-using PaymentFlowCloud.Infrastructure.Persistence;
-using PaymentFlowCloud.Worker.Messaging;
-using Microsoft.EntityFrameworkCore;
+using PaymentFlowCloud.Application;
+using PaymentFlowCloud.Infrastructure;
 
 var builder = Host.CreateApplicationBuilder(args);
 
-builder.Services.AddDbContext<PaymentDbContext>(options =>
-{
-    options.UseSqlServer(
-        builder.Configuration.GetConnectionString("SqlServer"));
-});
-
-builder.Services.Configure<RabbitMqOptions>(
-    builder.Configuration.GetSection("RabbitMQ"));
-
-builder.Services.AddScoped<IPaymentRepository, PaymentRepository>();
-builder.Services.AddScoped<ProcessPaymentService>();
-builder.Services.AddHostedService<Worker>();
+// Worker 和 API 复用同一套 Application / Infrastructure 注册，避免运行时行为分叉。
+builder.Services.AddApplication();
+builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddPaymentWorker();
 
 var host = builder.Build();
 host.Run();
