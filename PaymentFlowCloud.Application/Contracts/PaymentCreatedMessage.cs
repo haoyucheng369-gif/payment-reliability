@@ -10,7 +10,7 @@ public class PaymentCreatedMessage
 
     public string Currency { get; set; } = "EUR";
 
-    public string TraceId { get; set; } = default!;
+    public string CorrelationId { get; set; } = default!;
 
     public DateTime CreatedAt { get; set; }
 }

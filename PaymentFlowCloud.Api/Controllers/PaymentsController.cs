@@ -16,12 +16,18 @@ public class PaymentsController(
         CancellationToken cancellationToken)
     {
         // Controller 只负责 HTTP DTO 到应用层命令的转换，不直接处理数据库或消息队列。
+        var correlationId = Request.Headers.TryGetValue("X-Correlation-Id", out var headerValue)
+            && !string.IsNullOrWhiteSpace(headerValue)
+                ? headerValue.ToString()
+                : Guid.NewGuid().ToString();
+
         var payment = await createPaymentService.CreateAsync(
             new CreatePaymentCommand
             {
                 MerchantOrderId = request.MerchantOrderId,
                 Amount = request.Amount,
-                Currency = request.Currency
+                Currency = request.Currency,
+                CorrelationId = correlationId
             },
             cancellationToken);
 

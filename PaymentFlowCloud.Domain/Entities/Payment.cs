@@ -14,7 +14,7 @@ public class Payment
 
     public PaymentStatus Status { get; private set; } = PaymentStatus.Pending;
 
-    public string TraceId { get; set; } = default!;
+    public string CorrelationId { get; set; } = default!;
 
     public DateTime CreatedAt { get; set; }
 

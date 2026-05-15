@@ -115,9 +115,9 @@ public class PaymentCreatedConsumer(
             // 应用层处理成功后再 ack，确保消息不会提前丢失。
             await channel.BasicAckAsync(eventArgs.DeliveryTag, multiple: false, cancellationToken);
             logger.LogInformation(
-                "Processed payment {PaymentId} with trace {TraceId}",
+                "Processed payment {PaymentId} with correlation {CorrelationId}",
                 message.PaymentId,
-                message.TraceId);
+                message.CorrelationId);
         }
         catch (Exception ex)
         {

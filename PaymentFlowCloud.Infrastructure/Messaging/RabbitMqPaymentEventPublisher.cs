@@ -46,7 +46,7 @@ public class RabbitMqPaymentEventPublisher : IPaymentEventPublisher
             MerchantOrderId = payment.MerchantOrderId,
             Amount = payment.Amount,
             Currency = payment.Currency,
-            TraceId = payment.TraceId,
+            CorrelationId = payment.CorrelationId,
             CreatedAt = payment.CreatedAt
         };
 

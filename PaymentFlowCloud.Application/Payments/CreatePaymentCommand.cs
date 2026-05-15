@@ -7,4 +7,6 @@ public class CreatePaymentCommand
     public decimal Amount { get; set; }
 
     public string Currency { get; set; } = "EUR";
+
+    public string CorrelationId { get; set; } = default!;
 }
