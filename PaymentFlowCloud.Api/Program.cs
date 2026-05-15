@@ -1,58 +1,36 @@
 using System.Text.Json.Serialization;
-using Microsoft.EntityFrameworkCore;
-using PaymentFlowCloud.Application.Abstractions;
-using PaymentFlowCloud.Application.Payments;
-using PaymentFlowCloud.Api.Contracts;
-using PaymentFlowCloud.Infrastructure.Messaging;
-using PaymentFlowCloud.Infrastructure.Persistence;
+using PaymentFlowCloud.Application;
+using PaymentFlowCloud.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
+// 注册 API 文档和 JSON 序列化规则，枚举统一以字符串形式输出。
 builder.Services.AddOpenApi();
-builder.Services.ConfigureHttpJsonOptions(options =>
-{
-    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
-});
+builder.Services.AddSwaggerGen();
+builder.Services
+    .AddControllers()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+    });
 
-builder.Services.AddDbContext<PaymentDbContext>(options =>
-{
-    options.UseSqlServer(
-        builder.Configuration.GetConnectionString("SqlServer"));
-});
-
-builder.Services.Configure<RabbitMqOptions>(
-    builder.Configuration.GetSection("RabbitMQ"));
-builder.Services.AddSingleton<IPaymentEventPublisher, RabbitMqPaymentEventPublisher>();
-builder.Services.AddScoped<IPaymentRepository, PaymentRepository>();
-builder.Services.AddScoped<CreatePaymentService>();
+// 注册应用层用例和基础设施实现，Program.cs 只保留组合根职责。
+builder.Services.AddApplication();
+builder.Services.AddInfrastructure(builder.Configuration);
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+// 开发环境暴露 OpenAPI 描述和 Swagger UI，便于本地直接调试接口。
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
+    app.UseSwagger();
+    app.UseSwaggerUI();
 }
 
 app.UseHttpsRedirection();
 
-app.MapPost("/payments", async (
-    CreatePaymentRequest request,
-    CreatePaymentService createPaymentService,
-    CancellationToken cancellationToken) =>
-{
-    var payment = await createPaymentService.CreateAsync(
-        new CreatePaymentCommand
-        {
-            MerchantOrderId = request.MerchantOrderId,
-            Amount = request.Amount,
-            Currency = request.Currency
-        },
-        cancellationToken);
-
-    return Results.Ok(payment);
-});
+// 使用标准 Controller 路由，支付 API 入口集中在 PaymentsController。
+app.MapControllers();
 
 app.Run();

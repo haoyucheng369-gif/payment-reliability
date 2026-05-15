@@ -19,6 +19,7 @@ public class RabbitMqPaymentEventPublisher : IPaymentEventPublisher
 
     public async Task PublishPaymentCreatedAsync(Payment payment, CancellationToken cancellationToken = default)
     {
+        // 当前每次发布临时创建连接，足够支撑本地 MVP；后续可优化为长连接复用。
         var factory = new ConnectionFactory
         {
             HostName = _options.HostName,
@@ -30,6 +31,7 @@ public class RabbitMqPaymentEventPublisher : IPaymentEventPublisher
         await using var connection = await factory.CreateConnectionAsync(cancellationToken);
         await using var channel = await connection.CreateChannelAsync(cancellationToken: cancellationToken);
 
+        // 发布前声明队列，保证本地环境首次启动时不依赖手工建队列。
         await channel.QueueDeclareAsync(
             queue: _options.QueueName,
             durable: true,
@@ -50,6 +52,7 @@ public class RabbitMqPaymentEventPublisher : IPaymentEventPublisher
 
         var body = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(message));
 
+        // 使用默认 exchange，routingKey 直接指向队列名。
         await channel.BasicPublishAsync(
             exchange: string.Empty,
             routingKey: _options.QueueName,

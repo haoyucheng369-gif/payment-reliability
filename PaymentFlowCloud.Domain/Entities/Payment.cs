@@ -20,11 +20,13 @@ public class Payment
 
     public void MarkProcessed()
     {
+        // Worker 成功处理消息后触发 Process 流转。
         Fire(PaymentTrigger.Process);
     }
 
     public void MarkFailed()
     {
+        // 后续接入失败模拟和重试策略时使用 Fail 流转。
         Fire(PaymentTrigger.Fail);
     }
 
@@ -43,6 +45,7 @@ public class Payment
 
     private StateMachine<PaymentStatus, PaymentTrigger> CreateStateMachine()
     {
+        // 状态机按当前 Status 动态创建，EF 加载实体后也能正确执行流转。
         var stateMachine = new StateMachine<PaymentStatus, PaymentTrigger>(
             () => Status,
             status => Status = status);

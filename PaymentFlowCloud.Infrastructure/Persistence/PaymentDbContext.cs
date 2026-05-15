@@ -14,10 +14,12 @@ public class PaymentDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        // 金额显式限制精度，避免 SQL Server 使用默认 decimal 精度导致截断风险。
         modelBuilder.Entity<Payment>()
             .Property(payment => payment.Amount)
             .HasPrecision(18, 2);
 
+        // C# 使用 enum，数据库保留可读字符串，方便排查和手工查询。
         modelBuilder.Entity<Payment>()
             .Property(payment => payment.Status)
             .HasConversion<string>()
