@@ -4,10 +4,15 @@ services:
     image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: paymentflowcloud-sql
     environment:
-      SA_PASSWORD: "YourStrongPassword123!"
       ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "YourStrongPassword123!"
     ports:
       - "1433:1433"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$${MSSQL_SA_PASSWORD}\" -C -Q \"SELECT 1\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
 
   rabbitmq:
     image: rabbitmq:management
@@ -15,12 +20,71 @@ services:
     ports:
       - "5672:5672"
       - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
 
   seq:
     image: datalust/seq
     container_name: paymentflowcloud-seq
     environment:
       ACCEPT_EULA: "Y"
-      SEQ_FIRSTRUN_ADMINPASSWORD: "tPeCS2BbzV864YZ"
+      SEQ_FIRSTRUN_NOAUTHENTICATION: "true"
     ports:
       - "5341:80"
+
+  api:
+    build:
+      context: .
+      dockerfile: PaymentFlowCloud.Api/Dockerfile
+    container_name: paymentflowcloud-api
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: "Development"
+      ASPNETCORE_URLS: "http://+:8080"
+      ConnectionStrings__SqlServer: "Server=sqlserver,1433;Database=PaymentFlowCloudDb;User Id=sa;Password=YourStrongPassword123!;TrustServerCertificate=True;"
+      RabbitMQ__HostName: "rabbitmq"
+      RabbitMQ__Port: "5672"
+      RabbitMQ__UserName: "guest"
+      RabbitMQ__Password: "guest"
+      RabbitMQ__QueueName: "payment-created"
+    ports:
+      - "5147:8080"
+
+  worker:
+    build:
+      context: .
+      dockerfile: PaymentFlowCloud.Worker/Dockerfile
+    container_name: paymentflowcloud-worker
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      api:
+        condition: service_started
+    environment:
+      DOTNET_ENVIRONMENT: "Development"
+      ConnectionStrings__SqlServer: "Server=sqlserver,1433;Database=PaymentFlowCloudDb;User Id=sa;Password=YourStrongPassword123!;TrustServerCertificate=True;"
+      RabbitMQ__HostName: "rabbitmq"
+      RabbitMQ__Port: "5672"
+      RabbitMQ__UserName: "guest"
+      RabbitMQ__Password: "guest"
+      RabbitMQ__QueueName: "payment-created"
+
+  web:
+    build:
+      context: .
+      dockerfile: PaymentFlowCloud.Web/Dockerfile
+    container_name: paymentflowcloud-web
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - "5173:80"

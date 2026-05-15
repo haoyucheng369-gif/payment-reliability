@@ -1,6 +1,8 @@
 using System.Text.Json.Serialization;
+using Microsoft.EntityFrameworkCore;
 using PaymentFlowCloud.Application;
 using PaymentFlowCloud.Infrastructure;
+using PaymentFlowCloud.Infrastructure.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -20,6 +22,11 @@ builder.Services.AddInfrastructure(builder.Configuration);
 
 var app = builder.Build();
 
+if (app.Environment.IsDevelopment())
+{
+    await ApplyDatabaseMigrationsAsync(app);
+}
+
 // 开发环境暴露 OpenAPI 描述和 Swagger UI，便于本地直接调试接口。
 if (app.Environment.IsDevelopment())
 {
@@ -34,3 +41,25 @@ app.UseHttpsRedirection();
 app.MapControllers();
 
 app.Run();
+
+static async Task ApplyDatabaseMigrationsAsync(WebApplication app)
+{
+    using var scope = app.Services.CreateScope();
+    var dbContext = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
+
+    // Docker Compose 首次启动时 SQL Server 可能刚变为 healthy 但还没完全可用，这里做短重试保证一键启动稳定。
+    const int maxAttempts = 10;
+
+    for (var attempt = 1; attempt <= maxAttempts; attempt++)
+    {
+        try
+        {
+            await dbContext.Database.MigrateAsync();
+            return;
+        }
+        catch when (attempt < maxAttempts)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(3));
+        }
+    }
+}
