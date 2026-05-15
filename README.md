@@ -897,6 +897,219 @@ Potential future additions:
 
 ---
 
+# Development Tracking Strategy
+
+To support AI-assisted development across multiple assistants and sessions, the project should maintain explicit tracking documents.
+
+Recommended files:
+
+```text
+/docs
+   ├── roadmap.md
+   ├── progress.md
+   ├── architecture.md
+   ├── decisions.md
+   └── backlog.md
+```
+
+---
+
+# roadmap.md
+
+Purpose:
+
+High-level long-term phases.
+
+Example:
+
+```text
+Phase 1 - Local MVP
+Phase 2 - Webhook + Retry
+Phase 3 - Observability
+Phase 4 - Azure Migration
+Phase 5 - High Concurrency
+Phase 6 - Chaos Engineering
+```
+
+---
+
+# progress.md
+
+Purpose:
+
+Track completed work.
+
+Example:
+
+```text
+[x] SQL Server Docker
+[x] RabbitMQ Docker
+[x] Seq Docker
+[x] Solution Structure
+[ ] Payment Entity
+[ ] DbContext
+[ ] POST /payments
+[ ] RabbitMQ publish
+[ ] Worker consume
+```
+
+This file becomes the main AI handoff context.
+
+---
+
+# architecture.md
+
+Purpose:
+
+Track architecture diagrams and technical structure.
+
+Include:
+
+- event flow
+- async workflow
+- queue topology
+- retry strategy
+- trace propagation
+- cloud architecture
+
+---
+
+# decisions.md
+
+Purpose:
+
+Store architectural decisions and reasoning.
+
+Example:
+
+```text
+Why RabbitMQ locally?
+Why ACA instead of AKS?
+Why lightweight clean architecture?
+Why Azure Queue before Service Bus?
+```
+
+This prevents losing architectural context later.
+
+---
+
+# backlog.md
+
+Purpose:
+
+Store future ideas without polluting active tasks.
+
+Example:
+
+```text
+- Distributed rate limiting
+- Redis cache
+- Polly circuit breaker
+- KEDA scaling
+- Grafana dashboards
+- OpenTelemetry Collector
+```
+
+---
+
+# Recommended AI Workflow
+
+When switching AI assistants:
+
+1. Share README
+2. Share progress.md
+3. Share roadmap.md
+4. Share current branch name
+5. Share latest architecture decision
+
+This minimizes repeated explanations and preserves project continuity.
+
+---
+
+# Recommended Branch Strategy
+
+```text
+main
+develop
+feature/*
+```
+
+Examples:
+
+```text
+feature/idempotency
+feature/webhook
+feature/rabbitmq
+feature/observability
+feature/azure-functions
+```
+
+---
+
+# Recommended Milestone Strategy
+
+```text
+v0.1-local-mvp
+v0.2-rabbitmq-flow
+v0.3-webhook-retry
+v0.4-observability
+v0.5-azure-functions
+v0.6-aca-cloud
+```
+
+---
+
+# Current Recommended Immediate Tasks
+
+## Infrastructure Ready
+
+Completed:
+
+```text
+[x] GitHub repository
+[x] Solution structure
+[x] Docker Compose
+[x] SQL Server
+[x] RabbitMQ
+[x] Seq
+```
+
+---
+
+## Current Active Goal
+
+Build the first local payment flow:
+
+```text
+POST /payments
+↓
+Save SQL
+↓
+Publish RabbitMQ message
+↓
+Worker consume
+↓
+Update payment status
+```
+
+---
+
+## Immediate Next Tasks
+
+```text
+[x] Create Payment entity
+[x] Create PaymentDbContext
+[x] Configure EF Core
+[x] Create initial migration
+[x] Create POST /payments
+[x] Verify SQL persistence
+[ ] Add RabbitMQ publisher
+[ ] Add Worker consumer
+[ ] Update payment status
+```
+
+---
+
 # Final Vision
 
 PaymentSim is intended to become:

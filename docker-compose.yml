@@ -1,0 +1,28 @@
+version: '3.9'
+
+services:
+
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: paymentflowcloud-sql
+    environment:
+      SA_PASSWORD: "YourStrongPassword123!"
+      ACCEPT_EULA: "Y"
+    ports:
+      - "1433:1433"
+
+  rabbitmq:
+    image: rabbitmq:management
+    container_name: paymentflowcloud-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  seq:
+    image: datalust/seq
+    container_name: paymentflowcloud-seq
+    environment:
+      ACCEPT_EULA: "Y"
+      SEQ_FIRSTRUN_ADMINPASSWORD: "tPeCS2BbzV864YZ"
+    ports:
+      - "5341:80"
