@@ -31,7 +31,7 @@ public class PaymentsController(
                 },
                 cancellationToken);
 
-            return Ok(payment);
+            return Ok(PaymentResponse.From(payment));
         }
         catch (InvalidOperationException)
         {
@@ -49,6 +49,6 @@ public class PaymentsController(
 
         return payment is null
             ? NotFound()
-            : Ok(payment);
+            : Ok(PaymentResponse.From(payment));
     }
 }

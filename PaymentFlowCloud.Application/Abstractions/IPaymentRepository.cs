@@ -10,10 +10,6 @@ public interface IPaymentRepository
 
     Task<Payment?> FindByOrderIdAsync(Guid orderId, CancellationToken cancellationToken = default);
 
-    Task<Payment?> FindByMerchantOrderIdAsync(
-        string merchantOrderId,
-        CancellationToken cancellationToken = default);
-
     Task SaveChangesAsync(CancellationToken cancellationToken = default);
 }
 

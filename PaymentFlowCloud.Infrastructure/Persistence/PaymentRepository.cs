@@ -26,16 +26,6 @@ public class PaymentRepository(PaymentDbContext dbContext) : IPaymentRepository
             .SingleOrDefaultAsync(payment => payment.OrderId == orderId, cancellationToken);
     }
 
-    public async Task<Payment?> FindByMerchantOrderIdAsync(
-        string merchantOrderId,
-        CancellationToken cancellationToken = default)
-    {
-        return await dbContext.Payments
-            .SingleOrDefaultAsync(
-                payment => payment.MerchantOrderId == merchantOrderId,
-                cancellationToken);
-    }
-
     public async Task SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         try
@@ -63,12 +53,7 @@ public class PaymentRepository(PaymentDbContext dbContext) : IPaymentRepository
                 throw new DuplicateOrderPaymentException(orderId.Value);
             }
 
-            var merchantOrderId = dbContext.ChangeTracker
-                .Entries<Payment>()
-                .Select(entry => entry.Entity.MerchantOrderId)
-                .FirstOrDefault() ?? string.Empty;
-
-            throw new DuplicateMerchantOrderException(merchantOrderId);
+            throw;
         }
     }
 
@@ -80,4 +65,3 @@ public class PaymentRepository(PaymentDbContext dbContext) : IPaymentRepository
                 .Any(error => error.Number is 2601 or 2627);
     }
 }
-

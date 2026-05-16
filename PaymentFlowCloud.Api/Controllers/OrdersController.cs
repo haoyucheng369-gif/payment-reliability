@@ -24,7 +24,7 @@ public class OrdersController(
             },
             cancellationToken);
 
-        return Ok(order);
+        return Ok(OrderResponse.From(order));
     }
 
     [HttpGet("{id:guid}")]
@@ -37,7 +37,7 @@ public class OrdersController(
 
         return order is null
             ? NotFound()
-            : Ok(order);
+            : Ok(OrderResponse.From(order));
     }
 }
 

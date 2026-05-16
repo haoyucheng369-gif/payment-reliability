@@ -1,5 +1,6 @@
 import http from 'k6/http'
 import { check, group } from 'k6'
+import { sleep } from 'k6'
 
 export const options = {
   vus: Number(__ENV.VUS ?? 20),
@@ -13,18 +14,29 @@ export const options = {
 const baseUrl = __ENV.BASE_URL ?? 'http://host.docker.internal:5147'
 
 export function setup() {
-  const createOrderResponse = http.post(
-    `${baseUrl}/orders`,
-    JSON.stringify({
-      amount: 66.77,
-      currency: 'EUR',
-    }),
-    {
-      headers: {
-        'Content-Type': 'application/json',
+  let createOrderResponse
+
+  for (let attempt = 1; attempt <= 10; attempt += 1) {
+    createOrderResponse = http.post(
+      `${baseUrl}/orders`,
+      JSON.stringify({
+        amount: 66.77,
+        currency: 'EUR',
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
       },
-    },
-  )
+    )
+
+    if (createOrderResponse.status === 200) {
+      break
+    }
+
+    console.log(`Waiting for API readiness, attempt ${attempt}/10`)
+    sleep(1)
+  }
 
   check(createOrderResponse, {
     'order created': (response) => response.status === 200,
