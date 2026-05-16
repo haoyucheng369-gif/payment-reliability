@@ -39,7 +39,7 @@ public class PaymentRepository(PaymentDbContext dbContext) : IPaymentRepository
                 .Select(entry => entry.Entity.OrderId)
                 .FirstOrDefault(orderId => orderId is not null);
 
-            // SaveChanges 失败后把本次新增实体从 DbContext 中移除，避免后续查询被本地跟踪实体干扰。
+            // SaveChanges 失败后移除本次新增实体，避免后续查询被本地跟踪实体干扰。
             foreach (var entry in dbContext.ChangeTracker.Entries<Payment>())
             {
                 if (entry.State == EntityState.Added)

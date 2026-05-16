@@ -45,11 +45,11 @@ public class CreatePaymentService(
             await paymentRepository.AddAsync(payment, cancellationToken);
             await paymentRepository.SaveChangesAsync(cancellationToken);
         }
-        catch (DuplicateOrderPaymentException)
+        catch (DuplicateOrderPaymentException ex)
         {
             // 并发重复点击可能同时通过前置查询，唯一索引失败后再查一次已有 Payment。
             var concurrentPayment = await paymentRepository.FindByOrderIdAsync(
-                command.OrderId,
+                ex.OrderId,
                 cancellationToken);
 
             if (concurrentPayment is not null)
@@ -66,4 +66,3 @@ public class CreatePaymentService(
         return payment;
     }
 }
-

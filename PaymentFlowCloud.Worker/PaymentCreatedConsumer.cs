@@ -1,5 +1,4 @@
 using System.Text.Json;
-using Microsoft.Extensions.Options;
 using PaymentFlowCloud.Application.Contracts;
 using PaymentFlowCloud.Application.Payments;
 using PaymentFlowCloud.Infrastructure.Messaging;
@@ -11,32 +10,15 @@ namespace PaymentFlowCloud.Worker;
 public class PaymentCreatedConsumer(
     ILogger<PaymentCreatedConsumer> logger,
     IServiceScopeFactory serviceScopeFactory,
-    IOptions<RabbitMqOptions> options)
+    RabbitMqConnectionFactory connectionFactory)
 {
-    private readonly RabbitMqOptions _options = options.Value;
-
     public async Task StartAsync(CancellationToken stoppingToken)
     {
         // 当前 consumer 持有一个连接和 channel，生命周期跟随 Worker 进程。
-        var factory = new ConnectionFactory
-        {
-            HostName = _options.HostName,
-            Port = _options.Port,
-            UserName = _options.UserName,
-            Password = _options.Password
-        };
-
-        await using var connection = await factory.CreateConnectionAsync(stoppingToken);
+        await using var connection = await connectionFactory.CreateConnectionAsync(stoppingToken);
         await using var channel = await connection.CreateChannelAsync(cancellationToken: stoppingToken);
 
-        // Worker 启动时声明队列，避免依赖 API 先启动。
-        await channel.QueueDeclareAsync(
-            queue: _options.QueueName,
-            durable: true,
-            exclusive: false,
-            autoDelete: false,
-            arguments: null,
-            cancellationToken: stoppingToken);
+        await connectionFactory.DeclarePaymentCreatedQueueAsync(channel, stoppingToken);
 
         await channel.BasicQosAsync(
             prefetchSize: 0,
@@ -52,12 +34,12 @@ public class PaymentCreatedConsumer(
         };
 
         await channel.BasicConsumeAsync(
-            queue: _options.QueueName,
+            queue: connectionFactory.QueueName,
             autoAck: false,
             consumer: consumer,
             cancellationToken: stoppingToken);
 
-        logger.LogInformation("Payment worker consuming queue {QueueName}", _options.QueueName);
+        logger.LogInformation("Payment worker consuming queue {QueueName}", connectionFactory.QueueName);
 
         try
         {
@@ -106,7 +88,7 @@ public class PaymentCreatedConsumer(
                 cancellationToken);
             if (!processed)
             {
-                // 支付记录暂时查不到时保守重回队列，后续会替换成重试/DLQ 策略。
+                // 支付记录暂时查不到时保守重回队列，后续会替换成重试次数和 DLQ 策略。
                 logger.LogWarning("Payment {PaymentId} was not found; requeueing message", message.PaymentId);
                 await channel.BasicNackAsync(eventArgs.DeliveryTag, multiple: false, requeue: true, cancellationToken);
                 return;

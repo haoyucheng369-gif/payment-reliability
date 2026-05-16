@@ -47,10 +47,7 @@ public class PaymentDbContext : DbContext
 
     private static void ConfigurePayment(ModelBuilder modelBuilder)
     {
-        modelBuilder.Entity<Payment>()
-            .HasIndex(payment => payment.MerchantOrderId)
-            .IsUnique();
-
+        // 支付幂等以 OrderId 为准：同一个订单只能创建一条支付记录。
         modelBuilder.Entity<Payment>()
             .HasIndex(payment => payment.OrderId)
             .IsUnique()
@@ -86,4 +83,3 @@ public class PaymentDbContext : DbContext
             .HasMaxLength(32);
     }
 }
-
