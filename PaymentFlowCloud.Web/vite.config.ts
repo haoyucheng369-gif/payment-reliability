@@ -1,12 +1,12 @@
-import { defineConfig } from 'vite'
+import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
+import { defineConfig } from 'vite'
 
-// https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   server: {
     proxy: {
-      // 本地前端通过 Vite proxy 调 API，避免开发阶段额外配置 CORS。
+      // 本地开发时通过 Vite 代理 API，避免额外配置 CORS。
       '/payments': 'http://localhost:5147',
     },
   },
