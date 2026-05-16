@@ -1,20 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { checkoutProduct } from '../data/checkoutProduct'
 import type { ActivityItem } from '../models/activity'
+import type { Order } from '../models/order'
 import type { Payment } from '../models/payment'
+import { createOrder } from '../services/ordersService'
 import { createPayment, getPayment } from '../services/paymentsService'
-import { createCorrelationId, createMerchantOrderId } from '../utils/ids'
+import { createCorrelationId } from '../utils/ids'
 
 /**
  * 结账支付流程 Hook
  *
- * 这里集中管理支付页面的业务状态：
- * 当前订单号、支付结果、提交状态、错误信息、最近请求日志和轮询定时器。
+ * 管理真实一点的本地流程：Create Order -> Pay -> Worker 更新支付状态。
  */
 export function useCheckoutPayment() {
-  const [merchantOrderId, setMerchantOrderId] = useState(createMerchantOrderId)
+  const [order, setOrder] = useState<Order | null>(null)
   const [payment, setPayment] = useState<Payment | null>(null)
-  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isCreatingOrder, setIsCreatingOrder] = useState(false)
+  const [isSubmittingPayment, setIsSubmittingPayment] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [activity, setActivity] = useState<ActivityItem[]>([])
   const pollTimerRef = useRef<number | null>(null)
@@ -73,20 +75,45 @@ export function useCheckoutPayment() {
     [refreshPayment, stopPolling],
   )
 
+  const submitOrder = useCallback(async () => {
+    stopPolling()
+    setIsCreatingOrder(true)
+    setError(null)
+    setPayment(null)
+
+    try {
+      // 点击下单才创建 Order；刷新页面不会自动生成新订单。
+      const nextOrder = await createOrder({
+        amount: checkoutProduct.amount,
+        currency: checkoutProduct.currency,
+      })
+
+      setOrder(nextOrder)
+      setActivity([])
+      addActivity('POST /orders', nextOrder.id)
+    } catch (ex) {
+      setError(ex instanceof Error ? ex.message : 'Order request failed.')
+    } finally {
+      setIsCreatingOrder(false)
+    }
+  }, [addActivity, stopPolling])
+
   const submitPayment = useCallback(async () => {
-    setIsSubmitting(true)
+    if (!order) {
+      setError('Create an order before paying.')
+      return
+    }
+
+    setIsSubmittingPayment(true)
     setError(null)
 
     try {
       /**
-       * 每次 HTTP 请求都有新的 CorrelationId。
-       *
-       * MerchantOrderId 保持不变时，后端会通过唯一约束和幂等服务返回同一笔 Payment。
+       * 同一个 OrderId 重复 Pay 会返回同一笔 Payment。
+       * 每次 HTTP 请求仍然生成新的 CorrelationId，方便后续链路追踪。
        */
       const nextPayment = await createPayment({
-        merchantOrderId,
-        amount: checkoutProduct.amount,
-        currency: checkoutProduct.currency,
+        orderId: order.id,
         correlationId: createCorrelationId(),
       })
 
@@ -96,13 +123,13 @@ export function useCheckoutPayment() {
     } catch (ex) {
       setError(ex instanceof Error ? ex.message : 'Payment request failed.')
     } finally {
-      setIsSubmitting(false)
+      setIsSubmittingPayment(false)
     }
-  }, [addActivity, merchantOrderId, startPolling])
+  }, [addActivity, order, startPolling])
 
   const startNewOrder = useCallback(() => {
     stopPolling()
-    setMerchantOrderId(createMerchantOrderId())
+    setOrder(null)
     setPayment(null)
     setError(null)
     setActivity([])
@@ -115,12 +142,15 @@ export function useCheckoutPayment() {
   }, [stopPolling])
 
   return {
-    merchantOrderId,
+    order,
     payment,
-    isSubmitting,
+    isCreatingOrder,
+    isSubmittingPayment,
     error,
     activity,
+    submitOrder,
     submitPayment,
     startNewOrder,
   }
 }
+

@@ -28,6 +28,10 @@ export function PaymentState({ payment, error, activity }: PaymentStateProps) {
             <dd className="min-w-0 break-words font-mono text-sm text-slate-800">{payment.id}</dd>
           </div>
           <div className="grid gap-1 sm:grid-cols-[98px_minmax(0,1fr)] sm:gap-3">
+            <dt className="text-sm font-semibold text-slate-500">OrderId</dt>
+            <dd className="min-w-0 break-words font-mono text-sm text-slate-800">{payment.orderId}</dd>
+          </div>
+          <div className="grid gap-1 sm:grid-cols-[98px_minmax(0,1fr)] sm:gap-3">
             <dt className="text-sm font-semibold text-slate-500">Status</dt>
             <dd className="min-w-0 font-mono text-sm text-slate-800">{payment.status}</dd>
           </div>
@@ -37,9 +41,7 @@ export function PaymentState({ payment, error, activity }: PaymentStateProps) {
           </div>
         </dl>
       ) : (
-        <p className="text-sm leading-6 text-slate-500">
-          Submit the fixed order to create a payment. Reuse the same order to verify idempotency.
-        </p>
+        <p className="text-sm leading-6 text-slate-500">Create an order first, then pay from that OrderId.</p>
       )}
 
       {error && <p className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
@@ -64,3 +66,4 @@ export function PaymentState({ payment, error, activity }: PaymentStateProps) {
     </section>
   )
 }
+

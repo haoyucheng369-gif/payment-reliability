@@ -43,6 +43,7 @@ public class RabbitMqPaymentEventPublisher : IPaymentEventPublisher
         var message = new PaymentCreatedMessage
         {
             PaymentId = payment.Id,
+            OrderId = payment.OrderId,
             MerchantOrderId = payment.MerchantOrderId,
             Amount = payment.Amount,
             Currency = payment.Currency,

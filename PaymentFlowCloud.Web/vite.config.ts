@@ -7,6 +7,7 @@ export default defineConfig({
   server: {
     proxy: {
       // 本地开发时通过 Vite 代理 API，避免额外配置 CORS。
+      '/orders': 'http://localhost:5147',
       '/payments': 'http://localhost:5147',
     },
   },

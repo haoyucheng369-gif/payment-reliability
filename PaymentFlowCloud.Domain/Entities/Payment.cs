@@ -1,10 +1,13 @@
 using Stateless;
+using System.Text.Json.Serialization;
 
 namespace PaymentFlowCloud.Domain.Entities;
 
 public class Payment
 {
     public Guid Id { get; set; }
+
+    public Guid? OrderId { get; set; }
 
     public string MerchantOrderId { get; set; } = default!;
 
@@ -17,6 +20,9 @@ public class Payment
     public string CorrelationId { get; set; } = default!;
 
     public DateTime CreatedAt { get; set; }
+
+    [JsonIgnore]
+    public Order? Order { get; set; }
 
     public void MarkProcessed()
     {

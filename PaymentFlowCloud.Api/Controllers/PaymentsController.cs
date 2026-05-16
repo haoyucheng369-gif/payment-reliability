@@ -15,23 +15,28 @@ public class PaymentsController(
         [FromBody] CreatePaymentRequest request,
         CancellationToken cancellationToken)
     {
-        // Controller 只负责 HTTP DTO 到应用层命令的转换，不直接处理数据库或消息队列。
+        // 每次 HTTP 请求可以有新的 CorrelationId，但同一个 OrderId 重复请求只会返回同一笔 Payment。
         var correlationId = Request.Headers.TryGetValue("X-Correlation-Id", out var headerValue)
             && !string.IsNullOrWhiteSpace(headerValue)
                 ? headerValue.ToString()
                 : Guid.NewGuid().ToString();
 
-        var payment = await createPaymentService.CreateAsync(
-            new CreatePaymentCommand
-            {
-                MerchantOrderId = request.MerchantOrderId,
-                Amount = request.Amount,
-                Currency = request.Currency,
-                CorrelationId = correlationId
-            },
-            cancellationToken);
+        try
+        {
+            var payment = await createPaymentService.CreateAsync(
+                new CreatePaymentCommand
+                {
+                    OrderId = request.OrderId,
+                    CorrelationId = correlationId
+                },
+                cancellationToken);
 
-        return Ok(payment);
+            return Ok(payment);
+        }
+        catch (InvalidOperationException)
+        {
+            return NotFound();
+        }
     }
 
     [HttpGet("{id:guid}")]

@@ -4,6 +4,7 @@ using PaymentFlowCloud.Domain.Entities;
 namespace PaymentFlowCloud.Application.Payments;
 
 public class CreatePaymentService(
+    IOrderRepository orderRepository,
     IPaymentRepository paymentRepository,
     IPaymentEventPublisher paymentEventPublisher)
 {
@@ -11,9 +12,16 @@ public class CreatePaymentService(
         CreatePaymentCommand command,
         CancellationToken cancellationToken = default)
     {
-        // MerchantOrderId 是业务幂等键，重复请求直接返回已有支付，不重复发布消息。
-        var existingPayment = await paymentRepository.FindByMerchantOrderIdAsync(
-            command.MerchantOrderId,
+        var order = await orderRepository.FindByIdAsync(command.OrderId, cancellationToken);
+
+        if (order is null)
+        {
+            throw new InvalidOperationException($"Order '{command.OrderId}' was not found.");
+        }
+
+        // OrderId 是当前支付创建的幂等键，同一个订单重复点击 Pay 直接返回已有 Payment。
+        var existingPayment = await paymentRepository.FindByOrderIdAsync(
+            command.OrderId,
             cancellationToken);
 
         if (existingPayment is not null)
@@ -21,13 +29,13 @@ public class CreatePaymentService(
             return existingPayment;
         }
 
-        // 创建支付只负责落库和发布领域事件，后续更细粒度幂等键会在这里扩展。
         var payment = new Payment
         {
             Id = Guid.NewGuid(),
-            MerchantOrderId = command.MerchantOrderId,
-            Amount = command.Amount,
-            Currency = command.Currency,
+            OrderId = order.Id,
+            MerchantOrderId = order.MerchantOrderId,
+            Amount = order.Amount,
+            Currency = order.Currency,
             CorrelationId = command.CorrelationId,
             CreatedAt = DateTime.UtcNow
         };
@@ -37,11 +45,11 @@ public class CreatePaymentService(
             await paymentRepository.AddAsync(payment, cancellationToken);
             await paymentRepository.SaveChangesAsync(cancellationToken);
         }
-        catch (DuplicateMerchantOrderException)
+        catch (DuplicateOrderPaymentException)
         {
-            // 并发请求可能同时通过前置查询，唯一索引失败后再查一次已有支付。
-            var concurrentPayment = await paymentRepository.FindByMerchantOrderIdAsync(
-                command.MerchantOrderId,
+            // 并发重复点击可能同时通过前置查询，唯一索引失败后再查一次已有 Payment。
+            var concurrentPayment = await paymentRepository.FindByOrderIdAsync(
+                command.OrderId,
                 cancellationToken);
 
             if (concurrentPayment is not null)
@@ -58,3 +66,4 @@ public class CreatePaymentService(
         return payment;
     }
 }
+
