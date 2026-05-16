@@ -21,22 +21,15 @@ public class PaymentsController(
                 ? headerValue.ToString()
                 : Guid.NewGuid().ToString();
 
-        try
-        {
-            var payment = await createPaymentService.CreateAsync(
-                new CreatePaymentCommand
-                {
-                    OrderId = request.OrderId,
-                    CorrelationId = correlationId
-                },
-                cancellationToken);
+        var payment = await createPaymentService.CreateAsync(
+            new CreatePaymentCommand
+            {
+                OrderId = request.OrderId,
+                CorrelationId = correlationId
+            },
+            cancellationToken);
 
-            return Ok(PaymentResponse.From(payment));
-        }
-        catch (InvalidOperationException)
-        {
-            return NotFound();
-        }
+        return Ok(PaymentResponse.From(payment));
     }
 
     [HttpGet("{id:guid}")]

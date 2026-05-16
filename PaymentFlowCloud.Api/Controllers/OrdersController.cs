@@ -40,4 +40,3 @@ public class OrdersController(
             : Ok(OrderResponse.From(order));
     }
 }
-

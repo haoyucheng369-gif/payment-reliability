@@ -1,4 +1,5 @@
 using PaymentFlowCloud.Application.Abstractions;
+using PaymentFlowCloud.Application.Common;
 using PaymentFlowCloud.Domain.Entities;
 
 namespace PaymentFlowCloud.Application.Payments;
@@ -16,7 +17,7 @@ public class CreatePaymentService(
 
         if (order is null)
         {
-            throw new InvalidOperationException($"Order '{command.OrderId}' was not found.");
+            throw new NotFoundException("Order", command.OrderId);
         }
 
         // OrderId 是当前支付创建的幂等键，同一个订单重复点击 Pay 直接返回已有 Payment。
