@@ -1,9 +1,10 @@
 using PaymentFlowCloud.Application.Abstractions;
-using PaymentFlowCloud.Domain.Entities;
 
 namespace PaymentFlowCloud.Application.Payments;
 
-public class ProcessPaymentService(IPaymentRepository paymentRepository)
+public class ProcessPaymentService(
+    IOrderRepository orderRepository,
+    IPaymentRepository paymentRepository)
 {
     public async Task<bool> MarkProcessedAsync(
         Guid paymentId,
@@ -17,10 +18,17 @@ public class ProcessPaymentService(IPaymentRepository paymentRepository)
             return false;
         }
 
-        // 通过领域方法触发状态机，避免外部直接写 Status。
         payment.MarkProcessed();
+
+        if (payment.OrderId is not null)
+        {
+            var order = await orderRepository.FindByIdAsync(payment.OrderId.Value, cancellationToken);
+            order?.MarkPaid();
+        }
+
         await paymentRepository.SaveChangesAsync(cancellationToken);
 
         return true;
     }
 }
+

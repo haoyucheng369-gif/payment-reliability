@@ -1,5 +1,5 @@
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Data.SqlClient;
+using Microsoft.EntityFrameworkCore;
 using PaymentFlowCloud.Application.Abstractions;
 using PaymentFlowCloud.Application.Payments;
 using PaymentFlowCloud.Domain.Entities;
@@ -20,6 +20,12 @@ public class PaymentRepository(PaymentDbContext dbContext) : IPaymentRepository
             .SingleOrDefaultAsync(payment => payment.Id == id, cancellationToken);
     }
 
+    public async Task<Payment?> FindByOrderIdAsync(Guid orderId, CancellationToken cancellationToken = default)
+    {
+        return await dbContext.Payments
+            .SingleOrDefaultAsync(payment => payment.OrderId == orderId, cancellationToken);
+    }
+
     public async Task<Payment?> FindByMerchantOrderIdAsync(
         string merchantOrderId,
         CancellationToken cancellationToken = default)
@@ -38,10 +44,10 @@ public class PaymentRepository(PaymentDbContext dbContext) : IPaymentRepository
         }
         catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
         {
-            var merchantOrderId = dbContext.ChangeTracker
+            var orderId = dbContext.ChangeTracker
                 .Entries<Payment>()
-                .Select(entry => entry.Entity.MerchantOrderId)
-                .FirstOrDefault() ?? string.Empty;
+                .Select(entry => entry.Entity.OrderId)
+                .FirstOrDefault(orderId => orderId is not null);
 
             // SaveChanges 失败后把本次新增实体从 DbContext 中移除，避免后续查询被本地跟踪实体干扰。
             foreach (var entry in dbContext.ChangeTracker.Entries<Payment>())
@@ -51,6 +57,16 @@ public class PaymentRepository(PaymentDbContext dbContext) : IPaymentRepository
                     entry.State = EntityState.Detached;
                 }
             }
+
+            if (orderId is not null)
+            {
+                throw new DuplicateOrderPaymentException(orderId.Value);
+            }
+
+            var merchantOrderId = dbContext.ChangeTracker
+                .Entries<Payment>()
+                .Select(entry => entry.Entity.MerchantOrderId)
+                .FirstOrDefault() ?? string.Empty;
 
             throw new DuplicateMerchantOrderException(merchantOrderId);
         }
@@ -64,3 +80,4 @@ public class PaymentRepository(PaymentDbContext dbContext) : IPaymentRepository
                 .Any(error => error.Number is 2601 or 2627);
     }
 }
+

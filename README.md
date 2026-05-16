@@ -23,6 +23,32 @@ Its main goal is to practice and demonstrate:
 
 ---
 
+## Local Load Testing
+
+The project includes a lightweight k6 script for exercising payment idempotency under concurrent requests.
+
+Start the local stack first:
+
+```powershell
+docker compose up -d --build
+```
+
+Run k6 through Docker:
+
+```powershell
+docker run --rm -i `
+  -e VUS=20 `
+  -e ITERATIONS=20 `
+  -e BASE_URL=http://host.docker.internal:5147 `
+  -v ${PWD}\scripts:/scripts `
+  grafana/k6 run /scripts/payment-idempotency.k6.js
+```
+
+The script creates one order in `setup()`, then sends concurrent `POST /payments` requests with the same `orderId`.
+The database unique index on `Payments.OrderId` is the final concurrency guard.
+
+---
+
 # Core Objectives
 
 This project focuses on:

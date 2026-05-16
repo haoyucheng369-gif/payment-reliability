@@ -88,3 +88,18 @@ services:
         condition: service_started
     ports:
       - "5173:80"
+
+  k6:
+    image: grafana/k6
+    profiles:
+      - loadtest
+    depends_on:
+      api:
+        condition: service_started
+    environment:
+      BASE_URL: "http://api:8080"
+      VUS: "20"
+      ITERATIONS: "20"
+    volumes:
+      - ./scripts:/scripts:ro
+    command: ["run", "/scripts/payment-idempotency.k6.js"]

@@ -24,6 +24,7 @@ public static class DependencyInjection
             configuration.GetSection("RabbitMQ"));
 
         // 应用层依赖抽象，具体实现统一在 Infrastructure 里注册。
+        services.AddScoped<IOrderRepository, OrderRepository>();
         services.AddScoped<IPaymentRepository, PaymentRepository>();
         services.AddSingleton<IPaymentEventPublisher, RabbitMqPaymentEventPublisher>();
 

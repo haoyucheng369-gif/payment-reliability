@@ -1,13 +1,13 @@
 /**
  * 支付模型
  *
- * 这些类型和后端 Payment API 的返回结构保持一致，组件只依赖模型，
- * 不直接关心后端 Controller 或数据库实现。
+ * Payment 现在基于 Order 创建；同一个 OrderId 重复 Pay 应该返回同一笔 Payment。
  */
 export type PaymentStatus = 'Pending' | 'Processed' | 'Failed'
 
 export type Payment = {
   id: string
+  orderId: string | null
   merchantOrderId: string
   amount: number
   currency: string
@@ -15,3 +15,4 @@ export type Payment = {
   correlationId: string
   createdAt: string
 }
+

@@ -4,6 +4,8 @@ public class PaymentCreatedMessage
 {
     public Guid PaymentId { get; set; }
 
+    public Guid? OrderId { get; set; }
+
     public string MerchantOrderId { get; set; } = default!;
 
     public decimal Amount { get; set; }

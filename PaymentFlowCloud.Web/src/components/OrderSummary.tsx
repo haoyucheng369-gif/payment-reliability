@@ -1,10 +1,14 @@
-import { CreditCard, RefreshCw, RotateCcw, ShoppingCart } from 'lucide-react'
+import { CreditCard, PackagePlus, RefreshCw, RotateCcw, ShoppingCart } from 'lucide-react'
 import { checkoutProduct } from '../data/checkoutProduct'
+import type { Order } from '../models/order'
 
 type OrderSummaryProps = {
-  merchantOrderId: string
+  order: Order | null
   total: string
-  isSubmitting: boolean
+  isCreatingOrder: boolean
+  isSubmittingPayment: boolean
+  hasPayment: boolean
+  onCreateOrder: () => void
   onCreatePayment: () => void
   onStartNewOrder: () => void
 }
@@ -12,13 +16,15 @@ type OrderSummaryProps = {
 /**
  * 订单摘要和操作按钮
  *
- * Place Order 和 Click Again 都会提交同一个 MerchantOrderId。
- * Click Again 专门模拟重复点击，用来验证后端幂等逻辑。
+ * 真实流程先 Create Order，再 Pay；Retry Pay 用同一个 OrderId 测试支付幂等。
  */
 export function OrderSummary({
-  merchantOrderId,
+  order,
   total,
-  isSubmitting,
+  isCreatingOrder,
+  isSubmittingPayment,
+  hasPayment,
+  onCreateOrder,
   onCreatePayment,
   onStartNewOrder,
 }: OrderSummaryProps) {
@@ -46,12 +52,16 @@ export function OrderSummary({
 
       <dl className="my-5 grid gap-3">
         <div className="grid gap-1 sm:grid-cols-[142px_minmax(0,1fr)] sm:gap-3">
-          <dt className="text-sm font-semibold text-slate-500">MerchantOrderId</dt>
-          <dd className="min-w-0 break-words font-mono text-sm text-slate-800">{merchantOrderId}</dd>
+          <dt className="text-sm font-semibold text-slate-500">OrderId</dt>
+          <dd className="min-w-0 break-words font-mono text-sm text-slate-800">{order?.id ?? 'Not created'}</dd>
         </div>
         <div className="grid gap-1 sm:grid-cols-[142px_minmax(0,1fr)] sm:gap-3">
-          <dt className="text-sm font-semibold text-slate-500">Quantity</dt>
-          <dd className="min-w-0 font-mono text-sm text-slate-800">{checkoutProduct.quantity}</dd>
+          <dt className="text-sm font-semibold text-slate-500">MerchantOrderId</dt>
+          <dd className="min-w-0 break-words font-mono text-sm text-slate-800">{order?.merchantOrderId ?? '-'}</dd>
+        </div>
+        <div className="grid gap-1 sm:grid-cols-[142px_minmax(0,1fr)] sm:gap-3">
+          <dt className="text-sm font-semibold text-slate-500">Order Status</dt>
+          <dd className="min-w-0 font-mono text-sm text-slate-800">{order?.status ?? '-'}</dd>
         </div>
         <div className="grid gap-1 sm:grid-cols-[142px_minmax(0,1fr)] sm:gap-3">
           <dt className="text-sm font-semibold text-slate-500">Total</dt>
@@ -60,14 +70,25 @@ export function OrderSummary({
       </dl>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-        <button type="button" className={primaryButtonClassName} onClick={onCreatePayment} disabled={isSubmitting}>
-          <CreditCard size={16} aria-hidden="true" />
-          Place Order
-        </button>
-        <button type="button" className={secondaryButtonClassName} onClick={onCreatePayment} disabled={isSubmitting}>
-          <RefreshCw size={16} aria-hidden="true" />
-          Click Again
-        </button>
+        {!order && (
+          <button type="button" className={primaryButtonClassName} onClick={onCreateOrder} disabled={isCreatingOrder}>
+            <PackagePlus size={16} aria-hidden="true" />
+            Create Order
+          </button>
+        )}
+
+        {order && (
+          <button
+            type="button"
+            className={hasPayment ? secondaryButtonClassName : primaryButtonClassName}
+            onClick={onCreatePayment}
+            disabled={isSubmittingPayment}
+          >
+            {hasPayment ? <RefreshCw size={16} aria-hidden="true" /> : <CreditCard size={16} aria-hidden="true" />}
+            {hasPayment ? 'Retry Pay' : 'Pay'}
+          </button>
+        )}
+
         <button type="button" className={ghostButtonClassName} onClick={onStartNewOrder}>
           <RotateCcw size={16} aria-hidden="true" />
           New Order
@@ -76,3 +97,4 @@ export function OrderSummary({
     </section>
   )
 }
+

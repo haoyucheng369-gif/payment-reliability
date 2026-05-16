@@ -1,17 +1,14 @@
 import type { Payment } from '../models/payment'
 
 type CreatePaymentInput = {
-  merchantOrderId: string
-  amount: number
-  currency: string
+  orderId: string
   correlationId: string
 }
 
 /**
  * Payment API 服务
  *
- * 所有和后端 Payment API 的通信都集中在这里，页面组件只调用业务动作：
- * 创建支付、查询支付。
+ * 支付创建只传 OrderId，金额和商户订单号由后端从 Order 读取，避免前端篡改支付金额。
  */
 export async function createPayment(input: CreatePaymentInput) {
   const response = await fetch('/payments', {
@@ -21,9 +18,7 @@ export async function createPayment(input: CreatePaymentInput) {
       'X-Correlation-Id': input.correlationId,
     },
     body: JSON.stringify({
-      merchantOrderId: input.merchantOrderId,
-      amount: input.amount,
-      currency: input.currency,
+      orderId: input.orderId,
     }),
   })
 
@@ -43,3 +38,4 @@ export async function getPayment(paymentId: string) {
 
   return (await response.json()) as Payment
 }
+
