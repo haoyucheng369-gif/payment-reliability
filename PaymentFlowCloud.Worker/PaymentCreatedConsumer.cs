@@ -12,13 +12,15 @@ public class PaymentCreatedConsumer(
     IServiceScopeFactory serviceScopeFactory,
     RabbitMqConnectionFactory connectionFactory)
 {
+    private const string RetryCountHeader = "x-retry-count";
+
     public async Task StartAsync(CancellationToken stoppingToken)
     {
         // 当前 consumer 持有一个连接和 channel，生命周期跟随 Worker 进程。
         await using var connection = await connectionFactory.CreateConnectionAsync(stoppingToken);
         await using var channel = await connection.CreateChannelAsync(cancellationToken: stoppingToken);
 
-        await connectionFactory.DeclarePaymentCreatedQueueAsync(channel, stoppingToken);
+        await connectionFactory.DeclarePaymentCreatedQueuesAsync(channel, stoppingToken);
 
         await channel.BasicQosAsync(
             prefetchSize: 0,
@@ -29,7 +31,7 @@ public class PaymentCreatedConsumer(
         var consumer = new AsyncEventingBasicConsumer(channel);
         consumer.ReceivedAsync += async (_, eventArgs) =>
         {
-            // 每条消息独立处理，成功 ack，失败按类型决定丢弃或重回队列。
+            // 每条消息独立处理，成功 ack，失败按 retry count 重新发布或进入 DLQ。
             await HandleMessageAsync(channel, eventArgs, stoppingToken);
         };
 
@@ -39,7 +41,10 @@ public class PaymentCreatedConsumer(
             consumer: consumer,
             cancellationToken: stoppingToken);
 
-        logger.LogInformation("Payment worker consuming queue {QueueName}", connectionFactory.QueueName);
+        logger.LogInformation(
+            "Payment worker consuming queue {QueueName} with DLQ {DeadLetterQueueName}",
+            connectionFactory.QueueName,
+            connectionFactory.DeadLetterQueueName);
 
         try
         {
@@ -60,20 +65,20 @@ public class PaymentCreatedConsumer(
 
         try
         {
-            // 消息格式错误不可恢复，直接丢弃，避免无限重试。
+            // 消息格式错误不可恢复，直接送入 DLQ，避免无限重试。
             message = JsonSerializer.Deserialize<PaymentCreatedMessage>(eventArgs.Body.Span);
         }
         catch (JsonException ex)
         {
-            logger.LogWarning(ex, "Discarding invalid payment-created message");
-            await channel.BasicNackAsync(eventArgs.DeliveryTag, multiple: false, requeue: false, cancellationToken);
+            logger.LogWarning(ex, "Moving invalid payment-created message to DLQ");
+            await MoveToDeadLetterQueueAsync(channel, eventArgs, cancellationToken);
             return;
         }
 
         if (message is null || message.PaymentId == Guid.Empty)
         {
-            logger.LogWarning("Discarding empty payment-created message");
-            await channel.BasicNackAsync(eventArgs.DeliveryTag, multiple: false, requeue: false, cancellationToken);
+            logger.LogWarning("Moving empty payment-created message to DLQ");
+            await MoveToDeadLetterQueueAsync(channel, eventArgs, cancellationToken);
             return;
         }
 
@@ -100,9 +105,8 @@ public class PaymentCreatedConsumer(
                 cancellationToken);
             if (!processed)
             {
-                // 支付记录暂时查不到时保守重回队列，后续会替换成重试次数和 DLQ 策略。
-                logger.LogWarning("Payment {PaymentId} was not found; requeueing message", message.PaymentId);
-                await channel.BasicNackAsync(eventArgs.DeliveryTag, multiple: false, requeue: true, cancellationToken);
+                // 支付记录暂时查不到时按固定次数重试，超过后进入 DLQ。
+                await RetryOrMoveToDeadLetterQueueAsync(channel, eventArgs, cancellationToken);
                 return;
             }
 
@@ -114,9 +118,114 @@ public class PaymentCreatedConsumer(
         }
         catch (Exception ex)
         {
-            // 当前阶段先重回队列，后续接入最大重试次数和死信队列。
+            // 处理失败时不再无限 requeue，而是按 retry count 重新发布或进入 DLQ。
             logger.LogError(ex, "Failed to process payment-created message");
-            await channel.BasicNackAsync(eventArgs.DeliveryTag, multiple: false, requeue: true, cancellationToken);
+            await RetryOrMoveToDeadLetterQueueAsync(channel, eventArgs, cancellationToken);
         }
+    }
+
+    private async Task RetryOrMoveToDeadLetterQueueAsync(
+        IChannel channel,
+        BasicDeliverEventArgs eventArgs,
+        CancellationToken cancellationToken)
+    {
+        var retryCount = GetRetryCount(eventArgs);
+
+        if (retryCount >= connectionFactory.MaxRetryCount)
+        {
+            logger.LogWarning(
+                "Moving payment-created message to DLQ after {RetryCount} retries",
+                retryCount);
+
+            await MoveToDeadLetterQueueAsync(channel, eventArgs, cancellationToken);
+            return;
+        }
+
+        var nextRetryCount = retryCount + 1;
+
+        logger.LogWarning(
+            "Retrying payment-created message, retry {RetryCount} of {MaxRetryCount}",
+            nextRetryCount,
+            connectionFactory.MaxRetryCount);
+
+        await PublishCopyAsync(
+            channel,
+            eventArgs,
+            connectionFactory.QueueName,
+            nextRetryCount,
+            cancellationToken);
+
+        await channel.BasicAckAsync(eventArgs.DeliveryTag, multiple: false, cancellationToken);
+    }
+
+    private async Task MoveToDeadLetterQueueAsync(
+        IChannel channel,
+        BasicDeliverEventArgs eventArgs,
+        CancellationToken cancellationToken)
+    {
+        await PublishCopyAsync(
+            channel,
+            eventArgs,
+            connectionFactory.DeadLetterQueueName,
+            GetRetryCount(eventArgs),
+            cancellationToken);
+
+        await channel.BasicAckAsync(eventArgs.DeliveryTag, multiple: false, cancellationToken);
+    }
+
+    private static async Task PublishCopyAsync(
+        IChannel channel,
+        BasicDeliverEventArgs eventArgs,
+        string routingKey,
+        int retryCount,
+        CancellationToken cancellationToken)
+    {
+        var headers = CopyHeaders(eventArgs);
+        headers[RetryCountHeader] = retryCount;
+
+        var properties = new BasicProperties
+        {
+            ContentType = eventArgs.BasicProperties.ContentType,
+            CorrelationId = eventArgs.BasicProperties.CorrelationId,
+            MessageId = eventArgs.BasicProperties.MessageId,
+            Persistent = true,
+            Headers = headers
+        };
+
+        await channel.BasicPublishAsync(
+            exchange: string.Empty,
+            routingKey: routingKey,
+            mandatory: false,
+            basicProperties: properties,
+            body: eventArgs.Body,
+            cancellationToken: cancellationToken);
+    }
+
+    private static Dictionary<string, object?> CopyHeaders(BasicDeliverEventArgs eventArgs)
+    {
+        return eventArgs.BasicProperties.Headers is null
+            ? new Dictionary<string, object?>()
+            : eventArgs.BasicProperties.Headers.ToDictionary(
+                pair => pair.Key,
+                pair => pair.Value);
+    }
+
+    private static int GetRetryCount(BasicDeliverEventArgs eventArgs)
+    {
+        if (eventArgs.BasicProperties.Headers is null
+            || !eventArgs.BasicProperties.Headers.TryGetValue(RetryCountHeader, out var value))
+        {
+            return 0;
+        }
+
+        return value switch
+        {
+            byte[] bytes when int.TryParse(System.Text.Encoding.UTF8.GetString(bytes), out var parsed) => parsed,
+            int retryCount => retryCount,
+            long retryCount => (int)retryCount,
+            short retryCount => retryCount,
+            byte retryCount => retryCount,
+            _ => 0
+        };
     }
 }

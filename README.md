@@ -94,6 +94,47 @@ POST /payments
 -> Order marked paid
 ```
 
+## RabbitMQ Retry and DLQ
+
+The Worker uses a simple fixed retry policy for `payment-created` messages.
+
+Current local topology:
+
+```text
+payment-created
+payment-created-dlq
+```
+
+Retry behavior:
+
+```text
+Worker consumes payment-created
+-> success: ack
+-> failure and x-retry-count < 3: republish to payment-created with x-retry-count + 1, then ack original message
+-> failure and x-retry-count >= 3: publish to payment-created-dlq, then ack original message
+```
+
+The first version intentionally avoids delayed retry queues so the failure flow stays easy to inspect.
+
+RabbitMQ UI:
+
+```text
+http://localhost:15672
+```
+
+Default local credentials:
+
+```text
+guest / guest
+```
+
+Use the Queues tab to inspect:
+
+```text
+payment-created
+payment-created-dlq
+```
+
 ---
 
 # Core Objectives

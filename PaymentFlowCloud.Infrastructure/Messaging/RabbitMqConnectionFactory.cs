@@ -9,6 +9,10 @@ public class RabbitMqConnectionFactory(IOptions<RabbitMqOptions> options)
 
     public string QueueName => _options.QueueName;
 
+    public string DeadLetterQueueName => _options.DeadLetterQueueName;
+
+    public int MaxRetryCount => _options.MaxRetryCount;
+
     public async Task<IConnection> CreateConnectionAsync(CancellationToken cancellationToken = default)
     {
         // 集中创建 RabbitMQ 连接，避免发布端和消费端重复维护连接参数。
@@ -23,13 +27,21 @@ public class RabbitMqConnectionFactory(IOptions<RabbitMqOptions> options)
         return await factory.CreateConnectionAsync(cancellationToken);
     }
 
-    public async Task DeclarePaymentCreatedQueueAsync(
+    public async Task DeclarePaymentCreatedQueuesAsync(
         IChannel channel,
         CancellationToken cancellationToken = default)
     {
-        // 本地环境启动时自动声明队列，避免依赖手工创建 RabbitMQ queue。
+        // 本地环境启动时自动声明主队列和 DLQ，避免依赖手工创建 RabbitMQ queue。
         await channel.QueueDeclareAsync(
             queue: _options.QueueName,
+            durable: true,
+            exclusive: false,
+            autoDelete: false,
+            arguments: null,
+            cancellationToken: cancellationToken);
+
+        await channel.QueueDeclareAsync(
+            queue: _options.DeadLetterQueueName,
             durable: true,
             exclusive: false,
             autoDelete: false,

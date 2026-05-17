@@ -15,7 +15,7 @@ public class RabbitMqHealthCheck(RabbitMqConnectionFactory connectionFactory) : 
             await using var connection = await connectionFactory.CreateConnectionAsync(cancellationToken);
             await using var channel = await connection.CreateChannelAsync(cancellationToken: cancellationToken);
 
-            await connectionFactory.DeclarePaymentCreatedQueueAsync(channel, cancellationToken);
+            await connectionFactory.DeclarePaymentCreatedQueuesAsync(channel, cancellationToken);
 
             return HealthCheckResult.Healthy("RabbitMQ is reachable.");
         }

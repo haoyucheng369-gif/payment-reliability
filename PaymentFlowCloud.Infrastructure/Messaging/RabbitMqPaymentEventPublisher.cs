@@ -18,7 +18,7 @@ public class RabbitMqPaymentEventPublisher(
         await using var connection = await connectionFactory.CreateConnectionAsync(cancellationToken);
         await using var channel = await connection.CreateChannelAsync(cancellationToken: cancellationToken);
 
-        await connectionFactory.DeclarePaymentCreatedQueueAsync(channel, cancellationToken);
+        await connectionFactory.DeclarePaymentCreatedQueuesAsync(channel, cancellationToken);
 
         var message = new PaymentCreatedMessage
         {
@@ -32,11 +32,20 @@ public class RabbitMqPaymentEventPublisher(
         };
 
         var body = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(message));
+        var properties = new BasicProperties
+        {
+            ContentType = "application/json",
+            CorrelationId = payment.CorrelationId,
+            MessageId = payment.Id.ToString(),
+            Persistent = true
+        };
 
         // 使用默认 exchange，routingKey 直接指向队列名。
         await channel.BasicPublishAsync(
             exchange: string.Empty,
             routingKey: connectionFactory.QueueName,
+            mandatory: false,
+            basicProperties: properties,
             body: body,
             cancellationToken: cancellationToken);
 

@@ -54,6 +54,8 @@ services:
       RabbitMQ__UserName: "guest"
       RabbitMQ__Password: "guest"
       RabbitMQ__QueueName: "payment-created"
+      RabbitMQ__DeadLetterQueueName: "payment-created-dlq"
+      RabbitMQ__MaxRetryCount: "3"
       Seq__ServerUrl: "http://seq:80"
     ports:
       - "5147:8080"
@@ -78,6 +80,8 @@ services:
       RabbitMQ__UserName: "guest"
       RabbitMQ__Password: "guest"
       RabbitMQ__QueueName: "payment-created"
+      RabbitMQ__DeadLetterQueueName: "payment-created-dlq"
+      RabbitMQ__MaxRetryCount: "3"
       Seq__ServerUrl: "http://seq:80"
 
   web:

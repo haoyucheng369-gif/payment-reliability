@@ -11,4 +11,8 @@ public class RabbitMqOptions
     public string Password { get; set; } = "guest";
 
     public string QueueName { get; set; } = "payment-created";
+
+    public string DeadLetterQueueName { get; set; } = "payment-created-dlq";
+
+    public int MaxRetryCount { get; set; } = 3;
 }
