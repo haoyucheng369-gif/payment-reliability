@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using PaymentFlowCloud.Application.Abstractions;
 using PaymentFlowCloud.Application.Common;
 using PaymentFlowCloud.Domain.Entities;
@@ -7,7 +8,8 @@ namespace PaymentFlowCloud.Application.Payments;
 public class CreatePaymentService(
     IOrderRepository orderRepository,
     IPaymentRepository paymentRepository,
-    IPaymentEventPublisher paymentEventPublisher)
+    IPaymentEventPublisher paymentEventPublisher,
+    ILogger<CreatePaymentService> logger)
 {
     public async Task<Payment> CreateAsync(
         CreatePaymentCommand command,
@@ -17,6 +19,7 @@ public class CreatePaymentService(
 
         if (order is null)
         {
+            logger.LogWarning("Payment creation rejected because order {OrderId} was not found", command.OrderId);
             throw new NotFoundException("Order", command.OrderId);
         }
 
@@ -27,6 +30,11 @@ public class CreatePaymentService(
 
         if (existingPayment is not null)
         {
+            logger.LogInformation(
+                "Payment idempotency hit for order {OrderId}, returning payment {PaymentId}",
+                command.OrderId,
+                existingPayment.Id);
+
             return existingPayment;
         }
 
@@ -45,6 +53,12 @@ public class CreatePaymentService(
         {
             await paymentRepository.AddAsync(payment, cancellationToken);
             await paymentRepository.SaveChangesAsync(cancellationToken);
+
+            logger.LogInformation(
+                "Payment {PaymentId} created for order {OrderId} and merchant order {MerchantOrderId}",
+                payment.Id,
+                payment.OrderId,
+                payment.MerchantOrderId);
         }
         catch (DuplicateOrderPaymentException ex)
         {
@@ -55,6 +69,11 @@ public class CreatePaymentService(
 
             if (concurrentPayment is not null)
             {
+                logger.LogInformation(
+                    "Concurrent payment idempotency hit for order {OrderId}, returning payment {PaymentId}",
+                    ex.OrderId,
+                    concurrentPayment.Id);
+
                 return concurrentPayment;
             }
 
@@ -63,6 +82,11 @@ public class CreatePaymentService(
 
         // 先保存数据库，再发布消息，保证消费者能按 PaymentId 查到记录。
         await paymentEventPublisher.PublishPaymentCreatedAsync(payment, cancellationToken);
+
+        logger.LogInformation(
+            "Payment {PaymentId} creation event published for order {OrderId}",
+            payment.Id,
+            payment.OrderId);
 
         return payment;
     }

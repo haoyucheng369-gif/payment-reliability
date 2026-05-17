@@ -1,10 +1,12 @@
+using Microsoft.Extensions.Logging;
 using PaymentFlowCloud.Application.Abstractions;
 
 namespace PaymentFlowCloud.Application.Payments;
 
 public class ProcessPaymentService(
     IOrderRepository orderRepository,
-    IPaymentRepository paymentRepository)
+    IPaymentRepository paymentRepository,
+    ILogger<ProcessPaymentService> logger)
 {
     public async Task<bool> MarkProcessedAsync(
         Guid paymentId,
@@ -15,6 +17,7 @@ public class ProcessPaymentService(
 
         if (payment is null)
         {
+            logger.LogWarning("Payment {PaymentId} was not found during worker processing", paymentId);
             return false;
         }
 
@@ -28,7 +31,11 @@ public class ProcessPaymentService(
 
         await paymentRepository.SaveChangesAsync(cancellationToken);
 
+        logger.LogInformation(
+            "Payment {PaymentId} processed and order {OrderId} marked paid",
+            payment.Id,
+            payment.OrderId);
+
         return true;
     }
 }
-

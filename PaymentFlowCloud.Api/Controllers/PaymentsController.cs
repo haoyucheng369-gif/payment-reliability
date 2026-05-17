@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using PaymentFlowCloud.Api.Contracts;
+using PaymentFlowCloud.Api.Observability;
 using PaymentFlowCloud.Application.Payments;
 
 namespace PaymentFlowCloud.Api.Controllers;
@@ -15,11 +16,9 @@ public class PaymentsController(
         [FromBody] CreatePaymentRequest request,
         CancellationToken cancellationToken)
     {
-        // 每次 HTTP 请求可以有新的 CorrelationId，但同一个 OrderId 重复请求只会返回同一笔 Payment。
-        var correlationId = Request.Headers.TryGetValue("X-Correlation-Id", out var headerValue)
-            && !string.IsNullOrWhiteSpace(headerValue)
-                ? headerValue.ToString()
-                : Guid.NewGuid().ToString();
+        // CorrelationId 由 middleware 统一解析，支付请求只负责传入应用层命令。
+        var correlationId = HttpContext.Items[CorrelationIdMiddleware.ItemName] as string
+            ?? Guid.NewGuid().ToString();
 
         var payment = await createPaymentService.CreateAsync(
             new CreatePaymentCommand

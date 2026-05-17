@@ -49,6 +49,53 @@ The database unique index on `Payments.OrderId` is the final concurrency guard.
 
 ---
 
+## Local Observability
+
+The local stack sends API and Worker logs to Seq.
+
+Start the stack:
+
+```powershell
+docker compose up -d --build
+```
+
+Open Seq:
+
+```text
+http://localhost:5341
+```
+
+The API accepts an optional correlation header:
+
+```http
+X-Correlation-Id: CORR-123
+```
+
+If the header is missing, the API generates one and returns it in the response header.
+
+The same correlation id is stored on the `Payment`, published in the RabbitMQ message, and used by the Worker log scope.
+
+Useful Seq queries:
+
+```text
+CorrelationId = 'CORR-123'
+PaymentId = '...'
+OrderId = '...'
+```
+
+Expected local flow:
+
+```text
+POST /payments
+-> Payment created
+-> payment-created message published
+-> Worker consumed message
+-> Payment processed
+-> Order marked paid
+```
+
+---
+
 # Core Objectives
 
 This project focuses on:

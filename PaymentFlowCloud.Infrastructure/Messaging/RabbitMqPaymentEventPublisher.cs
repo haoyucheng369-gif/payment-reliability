@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using PaymentFlowCloud.Application.Abstractions;
 using PaymentFlowCloud.Application.Contracts;
 using PaymentFlowCloud.Domain.Entities;
@@ -7,7 +8,9 @@ using RabbitMQ.Client;
 
 namespace PaymentFlowCloud.Infrastructure.Messaging;
 
-public class RabbitMqPaymentEventPublisher(RabbitMqConnectionFactory connectionFactory) : IPaymentEventPublisher
+public class RabbitMqPaymentEventPublisher(
+    RabbitMqConnectionFactory connectionFactory,
+    ILogger<RabbitMqPaymentEventPublisher> logger) : IPaymentEventPublisher
 {
     public async Task PublishPaymentCreatedAsync(Payment payment, CancellationToken cancellationToken = default)
     {
@@ -36,5 +39,10 @@ public class RabbitMqPaymentEventPublisher(RabbitMqConnectionFactory connectionF
             routingKey: connectionFactory.QueueName,
             body: body,
             cancellationToken: cancellationToken);
+
+        logger.LogInformation(
+            "Published payment-created message for payment {PaymentId} to queue {QueueName}",
+            payment.Id,
+            connectionFactory.QueueName);
     }
 }

@@ -2,11 +2,26 @@ using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using PaymentFlowCloud.Api.Errors;
 using PaymentFlowCloud.Api.HealthChecks;
+using PaymentFlowCloud.Api.Observability;
 using PaymentFlowCloud.Application;
 using PaymentFlowCloud.Infrastructure;
 using PaymentFlowCloud.Infrastructure.Persistence;
+using Serilog;
+using Serilog.Events;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Host.UseSerilog((context, loggerConfiguration) =>
+{
+    // 本地写入 Console 和 Seq，框架日志降噪后优先展示业务链路日志。
+    loggerConfiguration
+        .MinimumLevel.Information()
+        .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
+        .MinimumLevel.Override("Microsoft.EntityFrameworkCore", LogEventLevel.Warning)
+        .Enrich.FromLogContext()
+        .WriteTo.Console()
+        .WriteTo.Seq(context.Configuration["Seq:ServerUrl"] ?? "http://localhost:5341");
+});
 
 // 注册 API 文档、统一错误响应和 JSON 序列化规则，枚举统一以字符串形式输出。
 builder.Services.AddOpenApi();
@@ -34,6 +49,9 @@ if (app.Environment.IsDevelopment())
 {
     await ApplyDatabaseMigrationsAsync(app);
 }
+
+// CorrelationId 必须最早进入 pipeline，后续异常处理、controller、service 日志才能自动带上。
+app.UseMiddleware<CorrelationIdMiddleware>();
 
 // 全局异常处理统一输出 ProblemDetails，避免各 controller 分散处理通用异常。
 app.UseExceptionHandler();

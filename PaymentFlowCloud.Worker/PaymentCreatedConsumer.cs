@@ -77,11 +77,23 @@ public class PaymentCreatedConsumer(
             return;
         }
 
+        // Worker 没有 HTTP pipeline，所以用消息体里的 CorrelationId 手动创建日志 scope。
+        using var scope = logger.BeginScope(new Dictionary<string, object>
+        {
+            ["CorrelationId"] = message.CorrelationId,
+            ["PaymentId"] = message.PaymentId
+        });
+
         try
         {
+            logger.LogInformation(
+                "Consuming payment-created message for payment {PaymentId} and order {OrderId}",
+                message.PaymentId,
+                message.OrderId);
+
             // 每条消息创建独立 DI scope，确保 DbContext 生命周期正确。
-            using var scope = serviceScopeFactory.CreateScope();
-            var processPaymentService = scope.ServiceProvider.GetRequiredService<ProcessPaymentService>();
+            using var serviceScope = serviceScopeFactory.CreateScope();
+            var processPaymentService = serviceScope.ServiceProvider.GetRequiredService<ProcessPaymentService>();
 
             var processed = await processPaymentService.MarkProcessedAsync(
                 message.PaymentId,
@@ -97,9 +109,8 @@ public class PaymentCreatedConsumer(
             // 应用层处理成功后再 ack，确保消息不会提前丢失。
             await channel.BasicAckAsync(eventArgs.DeliveryTag, multiple: false, cancellationToken);
             logger.LogInformation(
-                "Processed payment {PaymentId} with correlation {CorrelationId}",
-                message.PaymentId,
-                message.CorrelationId);
+                "Processed payment-created message for payment {PaymentId}",
+                message.PaymentId);
         }
         catch (Exception ex)
         {
