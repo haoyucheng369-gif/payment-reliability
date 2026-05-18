@@ -118,6 +118,15 @@ POST /payments
 ## RabbitMQ Retry and DLQ
 
 The Worker uses a simple fixed retry policy for `payment-created` messages.
+It also supports basic local throughput tuning:
+
+```text
+RabbitMQ:PrefetchCount
+RabbitMQ:MaxConcurrentMessages
+```
+
+`PrefetchCount` controls how many unacknowledged messages RabbitMQ may deliver to the Worker.
+`MaxConcurrentMessages` controls how many messages the Worker process handles at the same time.
 
 Current local topology:
 
