@@ -121,6 +121,7 @@ services:
       BASE_URL: "http://api:8080"
       VUS: "20"
       ITERATIONS: "20"
+      FINAL_STATUS_TIMEOUT_SECONDS: "15"
     volumes:
       - ./scripts:/scripts:ro
     command: ["run", "/scripts/payment-idempotency.k6.js"]
