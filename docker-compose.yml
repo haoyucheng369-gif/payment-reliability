@@ -66,7 +66,6 @@ services:
     build:
       context: .
       dockerfile: PaymentFlowCloud.Worker/Dockerfile
-    container_name: paymentflowcloud-worker
     depends_on:
       sqlserver:
         condition: service_healthy
@@ -86,6 +85,8 @@ services:
       RabbitMQ__QueueName: "payment-created"
       RabbitMQ__DeadLetterQueueName: "payment-created-dlq"
       RabbitMQ__MaxRetryCount: "3"
+      RabbitMQ__PrefetchCount: "10"
+      RabbitMQ__MaxConcurrentMessages: "5"
       Seq__ServerUrl: "http://seq:80"
       FakeProvider__BaseUrl: "http://provider-mock:8080"
       FakeProvider__WebhookUrl: "http://api:8080/webhooks/fake-provider/payment-succeeded"
