@@ -25,7 +25,7 @@ Its main goal is to practice and demonstrate:
 
 ## Local Load Testing
 
-The project includes lightweight k6 scripts for exercising payment idempotency and multi-order throughput.
+The project includes lightweight k6 scripts for exercising payment idempotency, multi-order throughput, and duplicate webhook handling.
 
 Start the local stack first:
 
@@ -64,6 +64,19 @@ The throughput script creates a different order per iteration, creates one payme
 ```text
 Payment = Succeeded
 Order = Paid
+```
+
+Run duplicate webhook verification through Docker Compose:
+
+```powershell
+docker compose run --rm --no-deps -e DUPLICATE_WEBHOOK_COUNT=3 -e FINAL_STATUS_TIMEOUT_SECONDS=20 k6-webhook-duplicate
+```
+
+The duplicate webhook script creates one paid order, posts the same `payment-succeeded` webhook multiple times, then verifies:
+
+```text
+Payment remains Succeeded
+Order remains Paid
 ```
 
 ---
