@@ -25,7 +25,7 @@ Its main goal is to practice and demonstrate:
 
 ## Local Load Testing
 
-The project includes a lightweight k6 script for exercising payment idempotency under concurrent requests.
+The project includes lightweight k6 scripts for exercising payment idempotency and multi-order throughput.
 
 Start the local stack first:
 
@@ -44,9 +44,22 @@ docker run --rm -i `
   grafana/k6 run /scripts/payment-idempotency.k6.js
 ```
 
-The script creates one order in `setup()`, then sends concurrent `POST /payments` requests with the same `orderId`.
+The idempotency script creates one order in `setup()`, then sends concurrent `POST /payments` requests with the same `orderId`.
 The database unique index on `Payments.OrderId` is the final concurrency guard.
 After the concurrent payment calls finish, `teardown()` polls the asynchronous result and verifies:
+
+```text
+Payment = Succeeded
+Order = Paid
+```
+
+Run the multi-order throughput baseline through Docker Compose:
+
+```powershell
+docker compose run --rm -e VUS=10 -e ITERATIONS=20 -e FINAL_STATUS_TIMEOUT_SECONDS=20 k6-throughput
+```
+
+The throughput script creates a different order per iteration, creates one payment for that order, then waits for:
 
 ```text
 Payment = Succeeded

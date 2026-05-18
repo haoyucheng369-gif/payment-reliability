@@ -117,6 +117,10 @@ services:
     depends_on:
       api:
         condition: service_started
+      worker:
+        condition: service_started
+      provider-mock:
+        condition: service_started
     environment:
       BASE_URL: "http://api:8080"
       VUS: "20"
@@ -125,3 +129,23 @@ services:
     volumes:
       - ./scripts:/scripts:ro
     command: ["run", "/scripts/payment-idempotency.k6.js"]
+
+  k6-throughput:
+    image: grafana/k6
+    profiles:
+      - loadtest
+    depends_on:
+      api:
+        condition: service_started
+      worker:
+        condition: service_started
+      provider-mock:
+        condition: service_started
+    environment:
+      BASE_URL: "http://api:8080"
+      VUS: "10"
+      ITERATIONS: "20"
+      FINAL_STATUS_TIMEOUT_SECONDS: "20"
+    volumes:
+      - ./scripts:/scripts:ro
+    command: ["run", "/scripts/payment-throughput.k6.js"]
