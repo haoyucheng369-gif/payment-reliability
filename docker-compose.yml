@@ -90,6 +90,7 @@ services:
       Seq__ServerUrl: "http://seq:80"
       FakeProvider__BaseUrl: "http://provider-mock:8080"
       FakeProvider__WebhookUrl: "http://api:8080/webhooks/fake-provider/payment-succeeded"
+      FakeProvider__TimeoutSeconds: "5"
 
   provider-mock:
     build:
@@ -99,6 +100,9 @@ services:
     environment:
       ASPNETCORE_URLS: "http://+:8080"
       Seq__ServerUrl: "http://seq:80"
+      ProviderMock__Mode: "${PROVIDER_MOCK_MODE:-Success}"
+      ProviderMock__WebhookDelaySeconds: "3"
+      ProviderMock__TimeoutDelaySeconds: "10"
     ports:
       - "5290:8080"
 
@@ -171,3 +175,28 @@ services:
     volumes:
       - ./scripts:/scripts:ro
     command: ["run", "/scripts/webhook-duplicate.k6.js"]
+
+  k6-provider-failure:
+    image: grafana/k6
+    profiles:
+      - loadtest
+    depends_on:
+      api:
+        condition: service_started
+      worker:
+        condition: service_started
+      provider-mock:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      BASE_URL: "http://api:8080"
+      RABBITMQ_MANAGEMENT_URL: "http://rabbitmq:15672"
+      RABBITMQ_QUEUE_VHOST: "/"
+      RABBITMQ_DLQ_NAME: "payment-created-dlq"
+      RABBITMQ_USER: "guest"
+      RABBITMQ_PASSWORD: "guest"
+      DLQ_TIMEOUT_SECONDS: "20"
+    volumes:
+      - ./scripts:/scripts:ro
+    command: ["run", "/scripts/provider-failure-dlq.k6.js"]

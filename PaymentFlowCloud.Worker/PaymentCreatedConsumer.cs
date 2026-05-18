@@ -34,6 +34,9 @@ public class PaymentCreatedConsumer(
         var consumer = new AsyncEventingBasicConsumer(channel);
         consumer.ReceivedAsync += async (_, eventArgs) =>
         {
+            // RabbitMQ.Client 的 Body 内存只在回调期间可靠；后台并发处理前必须先复制快照。
+            var delivery = MessageDelivery.From(eventArgs);
+
             // 先取得并发槽位，再把消息处理放到后台任务，允许 RabbitMQ 继续投递到 prefetch 上限。
             await messageProcessingSemaphore.WaitAsync(stoppingToken);
 
@@ -41,10 +44,10 @@ public class PaymentCreatedConsumer(
             {
                 try
                 {
-                    // 每条消息独立处理，成功 ack，失败按 retry count 重新发布或进入 DLQ。
+                    // 每条消息独立处理；成功 ack，失败按 retry count 重新发布或进入 DLQ。
                     await HandleMessageAsync(
                         channel,
-                        eventArgs,
+                        delivery,
                         channelOperationSemaphore,
                         stoppingToken);
                 }
@@ -80,7 +83,7 @@ public class PaymentCreatedConsumer(
 
     private async Task HandleMessageAsync(
         IChannel channel,
-        BasicDeliverEventArgs eventArgs,
+        MessageDelivery delivery,
         SemaphoreSlim channelOperationSemaphore,
         CancellationToken cancellationToken)
     {
@@ -89,14 +92,14 @@ public class PaymentCreatedConsumer(
         try
         {
             // 消息格式错误不可恢复，直接送入 DLQ，避免无限重试。
-            message = JsonSerializer.Deserialize<PaymentCreatedMessage>(eventArgs.Body.Span);
+            message = JsonSerializer.Deserialize<PaymentCreatedMessage>(delivery.Body.Span);
         }
         catch (JsonException ex)
         {
             logger.LogWarning(ex, "Moving invalid payment-created message to DLQ");
             await MoveToDeadLetterQueueAsync(
                 channel,
-                eventArgs,
+                delivery,
                 channelOperationSemaphore,
                 cancellationToken);
             return;
@@ -107,7 +110,7 @@ public class PaymentCreatedConsumer(
             logger.LogWarning("Moving empty payment-created message to DLQ");
             await MoveToDeadLetterQueueAsync(
                 channel,
-                eventArgs,
+                delivery,
                 channelOperationSemaphore,
                 cancellationToken);
             return;
@@ -139,7 +142,7 @@ public class PaymentCreatedConsumer(
                 // 支付记录暂时查不到时按固定次数重试，超过后进入 DLQ。
                 await RetryOrMoveToDeadLetterQueueAsync(
                     channel,
-                    eventArgs,
+                    delivery,
                     channelOperationSemaphore,
                     cancellationToken);
                 return;
@@ -152,17 +155,17 @@ public class PaymentCreatedConsumer(
                 cancellationToken);
             if (!processingStarted)
             {
-                // 支付记录暂时查不到时按固定次数重试，超过后进入 DLQ。
+                // 状态推进失败时按固定次数重试，超过后进入 DLQ。
                 await RetryOrMoveToDeadLetterQueueAsync(
                     channel,
-                    eventArgs,
+                    delivery,
                     channelOperationSemaphore,
                     cancellationToken);
                 return;
             }
 
             // 应用层处理成功后再 ack，确保消息不会提前丢失。
-            await AckAsync(channel, eventArgs, channelOperationSemaphore, cancellationToken);
+            await AckAsync(channel, delivery, channelOperationSemaphore, cancellationToken);
             logger.LogInformation(
                 "Payment-created message submitted to provider for payment {PaymentId}",
                 message.PaymentId);
@@ -173,7 +176,7 @@ public class PaymentCreatedConsumer(
             logger.LogError(ex, "Failed to process payment-created message");
             await RetryOrMoveToDeadLetterQueueAsync(
                 channel,
-                eventArgs,
+                delivery,
                 channelOperationSemaphore,
                 cancellationToken);
         }
@@ -181,11 +184,11 @@ public class PaymentCreatedConsumer(
 
     private async Task RetryOrMoveToDeadLetterQueueAsync(
         IChannel channel,
-        BasicDeliverEventArgs eventArgs,
+        MessageDelivery delivery,
         SemaphoreSlim channelOperationSemaphore,
         CancellationToken cancellationToken)
     {
-        var retryCount = GetRetryCount(eventArgs);
+        var retryCount = GetRetryCount(delivery);
 
         if (retryCount >= connectionFactory.MaxRetryCount)
         {
@@ -195,7 +198,7 @@ public class PaymentCreatedConsumer(
 
             await MoveToDeadLetterQueueAsync(
                 channel,
-                eventArgs,
+                delivery,
                 channelOperationSemaphore,
                 cancellationToken);
             return;
@@ -213,12 +216,12 @@ public class PaymentCreatedConsumer(
         {
             await PublishCopyAsync(
                 channel,
-                eventArgs,
+                delivery,
                 connectionFactory.QueueName,
                 nextRetryCount,
                 cancellationToken);
 
-            await channel.BasicAckAsync(eventArgs.DeliveryTag, multiple: false, cancellationToken);
+            await channel.BasicAckAsync(delivery.DeliveryTag, multiple: false, cancellationToken);
         }
         finally
         {
@@ -228,7 +231,7 @@ public class PaymentCreatedConsumer(
 
     private async Task MoveToDeadLetterQueueAsync(
         IChannel channel,
-        BasicDeliverEventArgs eventArgs,
+        MessageDelivery delivery,
         SemaphoreSlim channelOperationSemaphore,
         CancellationToken cancellationToken)
     {
@@ -237,12 +240,12 @@ public class PaymentCreatedConsumer(
         {
             await PublishCopyAsync(
                 channel,
-                eventArgs,
+                delivery,
                 connectionFactory.DeadLetterQueueName,
-                GetRetryCount(eventArgs),
+                GetRetryCount(delivery),
                 cancellationToken);
 
-            await channel.BasicAckAsync(eventArgs.DeliveryTag, multiple: false, cancellationToken);
+            await channel.BasicAckAsync(delivery.DeliveryTag, multiple: false, cancellationToken);
         }
         finally
         {
@@ -252,14 +255,14 @@ public class PaymentCreatedConsumer(
 
     private static async Task AckAsync(
         IChannel channel,
-        BasicDeliverEventArgs eventArgs,
+        MessageDelivery delivery,
         SemaphoreSlim channelOperationSemaphore,
         CancellationToken cancellationToken)
     {
         await channelOperationSemaphore.WaitAsync(cancellationToken);
         try
         {
-            await channel.BasicAckAsync(eventArgs.DeliveryTag, multiple: false, cancellationToken);
+            await channel.BasicAckAsync(delivery.DeliveryTag, multiple: false, cancellationToken);
         }
         finally
         {
@@ -269,19 +272,19 @@ public class PaymentCreatedConsumer(
 
     private static async Task PublishCopyAsync(
         IChannel channel,
-        BasicDeliverEventArgs eventArgs,
+        MessageDelivery delivery,
         string routingKey,
         int retryCount,
         CancellationToken cancellationToken)
     {
-        var headers = CopyHeaders(eventArgs);
+        var headers = CopyHeaders(delivery);
         headers[RetryCountHeader] = retryCount;
 
         var properties = new BasicProperties
         {
-            ContentType = eventArgs.BasicProperties.ContentType,
-            CorrelationId = eventArgs.BasicProperties.CorrelationId,
-            MessageId = eventArgs.BasicProperties.MessageId,
+            ContentType = delivery.ContentType,
+            CorrelationId = delivery.CorrelationId,
+            MessageId = delivery.MessageId,
             Persistent = true,
             Headers = headers
         };
@@ -291,23 +294,23 @@ public class PaymentCreatedConsumer(
             routingKey: routingKey,
             mandatory: false,
             basicProperties: properties,
-            body: eventArgs.Body,
+            body: delivery.Body,
             cancellationToken: cancellationToken);
     }
 
-    private static Dictionary<string, object?> CopyHeaders(BasicDeliverEventArgs eventArgs)
+    private static Dictionary<string, object?> CopyHeaders(MessageDelivery delivery)
     {
-        return eventArgs.BasicProperties.Headers is null
+        return delivery.Headers is null
             ? new Dictionary<string, object?>()
-            : eventArgs.BasicProperties.Headers.ToDictionary(
+            : delivery.Headers.ToDictionary(
                 pair => pair.Key,
                 pair => pair.Value);
     }
 
-    private static int GetRetryCount(BasicDeliverEventArgs eventArgs)
+    private static int GetRetryCount(MessageDelivery delivery)
     {
-        if (eventArgs.BasicProperties.Headers is null
-            || !eventArgs.BasicProperties.Headers.TryGetValue(RetryCountHeader, out var value))
+        if (delivery.Headers is null
+            || !delivery.Headers.TryGetValue(RetryCountHeader, out var value))
         {
             return 0;
         }
@@ -321,5 +324,27 @@ public class PaymentCreatedConsumer(
             byte retryCount => retryCount,
             _ => 0
         };
+    }
+
+    private sealed record MessageDelivery(
+        ulong DeliveryTag,
+        ReadOnlyMemory<byte> Body,
+        string? ContentType,
+        string? CorrelationId,
+        string? MessageId,
+        Dictionary<string, object?>? Headers)
+    {
+        public static MessageDelivery From(BasicDeliverEventArgs eventArgs)
+        {
+            return new MessageDelivery(
+                eventArgs.DeliveryTag,
+                eventArgs.Body.ToArray(),
+                eventArgs.BasicProperties.ContentType,
+                eventArgs.BasicProperties.CorrelationId,
+                eventArgs.BasicProperties.MessageId,
+                eventArgs.BasicProperties.Headers?.ToDictionary(
+                    pair => pair.Key,
+                    pair => pair.Value));
+        }
     }
 }
