@@ -66,6 +66,22 @@ Payment = Succeeded
 Order = Paid
 ```
 
+Run the API throughput baseline through Docker Compose:
+
+```powershell
+docker compose run --rm --no-deps -e VUS=20 -e ITERATIONS=100 k6-api-throughput
+```
+
+The API throughput script focuses on the synchronous API boundary only:
+
+```text
+POST /orders
+POST /payments
+GET /payments/{id}
+```
+
+It does not wait for Provider or webhook completion, so it is useful for comparing API latency, SQL insert performance, and RabbitMQ publish overhead separately from the asynchronous Worker flow.
+
 Run duplicate webhook verification through Docker Compose:
 
 ```powershell

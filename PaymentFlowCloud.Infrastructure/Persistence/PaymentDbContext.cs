@@ -26,6 +26,10 @@ public class PaymentDbContext : DbContext
             .HasIndex(order => order.MerchantOrderId)
             .IsUnique();
 
+        // 后台排查和补偿任务常按状态加时间窗口扫描订单，例如查找长时间未支付订单。
+        modelBuilder.Entity<Order>()
+            .HasIndex(order => new { order.Status, order.CreatedAt });
+
         modelBuilder.Entity<Order>()
             .Property(order => order.Amount)
             .HasPrecision(18, 2);
@@ -52,6 +56,10 @@ public class PaymentDbContext : DbContext
             .HasIndex(payment => payment.OrderId)
             .IsUnique()
             .HasFilter("[OrderId] IS NOT NULL");
+
+        // 后台排查和补偿任务常按状态加时间窗口扫描支付，例如查找长时间 Processing 的支付。
+        modelBuilder.Entity<Payment>()
+            .HasIndex(payment => new { payment.Status, payment.CreatedAt });
 
         modelBuilder.Entity<Payment>()
             .HasOne(payment => payment.Order)
