@@ -152,3 +152,22 @@ services:
     volumes:
       - ./scripts:/scripts:ro
     command: ["run", "/scripts/payment-throughput.k6.js"]
+
+  k6-webhook-duplicate:
+    image: grafana/k6
+    profiles:
+      - loadtest
+    depends_on:
+      api:
+        condition: service_started
+      worker:
+        condition: service_started
+      provider-mock:
+        condition: service_started
+    environment:
+      BASE_URL: "http://api:8080"
+      DUPLICATE_WEBHOOK_COUNT: "3"
+      FINAL_STATUS_TIMEOUT_SECONDS: "20"
+    volumes:
+      - ./scripts:/scripts:ro
+    command: ["run", "/scripts/webhook-duplicate.k6.js"]
