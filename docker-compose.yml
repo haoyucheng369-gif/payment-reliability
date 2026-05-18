@@ -56,6 +56,8 @@ services:
       RabbitMQ__QueueName: "payment-created"
       RabbitMQ__DeadLetterQueueName: "payment-created-dlq"
       RabbitMQ__MaxRetryCount: "3"
+      RabbitMQ__PrefetchCount: "10"
+      RabbitMQ__MaxConcurrentMessages: "5"
       Seq__ServerUrl: "http://seq:80"
     ports:
       - "5147:8080"
