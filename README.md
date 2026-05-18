@@ -1,125 +1,80 @@
 # PaymentFlowCloud
 
-## Overview
+PaymentFlowCloud is a local-first payment reliability playground built with ASP.NET Core, SQL Server, RabbitMQ, Docker Compose, Seq, React, and k6.
 
-PaymentFlowCloud is a cloud-oriented distributed payment reliability simulation platform built with ASP.NET Core and Azure-oriented architecture concepts.
+It is not intended to become a real payment provider. The goal is to practice practical backend reliability patterns around payment creation, idempotency, asynchronous processing, webhooks, retries, DLQ handling, load testing, and observability.
 
-The project does NOT aim to become a real payment platform.
+## Current Capabilities
 
-Its main goal is to practice and demonstrate:
+- Order creation API
+- Idempotent payment creation by `OrderId`
+- SQL Server persistence with EF Core migrations
+- RabbitMQ `payment-created` queue
+- Background Worker consumer
+- Fake payment provider with delayed webhook callback
+- Payment status flow: `Pending -> Processing -> Succeeded`
+- Order status flow: `PendingPayment -> Paid`
+- Provider failure simulation: `Success`, `Http500`, `Timeout`
+- Worker retry and DLQ handling
+- Multi-worker local scaling
+- Seq structured logs with `CorrelationId`
+- React checkout simulation UI
+- k6 scripts for idempotency, throughput, duplicate webhooks, and provider failure
 
-- Idempotent payment processing
-- Distributed tracing
-- Webhook signature validation
-- Retry strategies
-- Event-driven architecture
-- Queue-based asynchronous processing
-- Eventual consistency
-- High concurrency protection
-- Rate limiting
-- Observability
-- Cloud-native Azure services
-- Reliability engineering concepts
-
----
-
-## Local Load Testing
-
-The project includes lightweight k6 scripts for exercising payment idempotency, multi-order throughput, and duplicate webhook handling.
-
-Start the local stack first:
-
-```powershell
-docker compose up -d --build
-```
-
-Run k6 through Docker:
-
-```powershell
-docker run --rm -i `
-  -e VUS=20 `
-  -e ITERATIONS=20 `
-  -e BASE_URL=http://host.docker.internal:5147 `
-  -v ${PWD}\scripts:/scripts `
-  grafana/k6 run /scripts/payment-idempotency.k6.js
-```
-
-The idempotency script creates one order in `setup()`, then sends concurrent `POST /payments` requests with the same `orderId`.
-The database unique index on `Payments.OrderId` is the final concurrency guard.
-After the concurrent payment calls finish, `teardown()` polls the asynchronous result and verifies:
+## Architecture
 
 ```text
-Payment = Succeeded
-Order = Paid
+React Web
+   |
+   v
+Payment API
+   |
+   +--> SQL Server
+   |
+   +--> RabbitMQ payment-created
+             |
+             v
+        Worker Consumer
+             |
+             v
+        Fake Provider
+             |
+             v
+        API Webhook
+             |
+             v
+        SQL Server status update
 ```
 
-Run the multi-order throughput baseline through Docker Compose:
-
-```powershell
-docker compose run --rm -e VUS=10 -e ITERATIONS=20 -e FINAL_STATUS_TIMEOUT_SECONDS=20 k6-throughput
-```
-
-The throughput script creates a different order per iteration, creates one payment for that order, then waits for:
+Failure path:
 
 ```text
-Payment = Succeeded
-Order = Paid
+Worker calls Fake Provider
+   |
+   +--> Provider returns 500 or times out
+   |
+   +--> Worker retries payment-created
+   |
+   +--> Max retries reached
+   |
+   v
+payment-created-dlq
 ```
 
-Run the API throughput baseline through Docker Compose:
+## Local Stack
 
-```powershell
-docker compose run --rm --no-deps -e VUS=20 -e ITERATIONS=100 k6-api-throughput
-```
+Docker Compose starts:
 
-The API throughput script focuses on the synchronous API boundary only:
+- `api`: ASP.NET Core Payment API
+- `worker`: RabbitMQ consumer and provider caller
+- `provider-mock`: fake payment provider and webhook sender
+- `web`: React checkout UI
+- `sqlserver`: local SQL Server
+- `rabbitmq`: RabbitMQ with management UI
+- `seq`: local structured log viewer
+- `k6-*`: on-demand load test runners
 
-```text
-POST /orders
-POST /payments
-GET /payments/{id}
-```
-
-It does not wait for Provider or webhook completion, so it is useful for comparing API latency, SQL insert performance, and RabbitMQ publish overhead separately from the asynchronous Worker flow.
-
-Run duplicate webhook verification through Docker Compose:
-
-```powershell
-docker compose run --rm --no-deps -e DUPLICATE_WEBHOOK_COUNT=3 -e FINAL_STATUS_TIMEOUT_SECONDS=20 k6-webhook-duplicate
-```
-
-The duplicate webhook script creates one paid order, posts the same `payment-succeeded` webhook multiple times, then verifies:
-
-```text
-Payment remains Succeeded
-Order remains Paid
-```
-
-Run provider failure verification by switching the fake provider mode, rebuilding the provider and worker, then checking that the failed `payment-created` message reaches the DLQ:
-
-```powershell
-$env:PROVIDER_MOCK_MODE="Http500"
-docker compose up -d --build provider-mock worker
-docker compose run --rm --no-deps -e DLQ_TIMEOUT_SECONDS=20 k6-provider-failure
-$env:PROVIDER_MOCK_MODE="Success"
-docker compose up -d --build provider-mock worker
-```
-
-Supported local provider modes:
-
-```text
-Success
-Http500
-Timeout
-```
-
-`Http500` makes the provider return a synchronous 500 response. `Timeout` delays the provider response beyond the Worker HttpClient timeout. Both modes validate the Worker retry / DLQ path.
-
----
-
-## Local Observability
-
-The local stack sends API and Worker logs to Seq.
+## Run Locally
 
 Start the stack:
 
@@ -127,7 +82,187 @@ Start the stack:
 docker compose up -d --build
 ```
 
-Open Seq:
+Apply database migrations:
+
+```powershell
+dotnet ef database update --project PaymentFlowCloud.Infrastructure --startup-project PaymentFlowCloud.Api
+```
+
+Useful local URLs:
+
+```text
+Web UI:      http://localhost:5173
+Swagger:     http://localhost:5147/swagger
+RabbitMQ:    http://localhost:15672
+Seq:         http://localhost:5341
+Provider:    http://localhost:5290/provider/payments
+```
+
+RabbitMQ credentials:
+
+```text
+guest / guest
+```
+
+## Payment Flow
+
+Normal flow:
+
+```text
+POST /orders
+-> Order = PendingPayment
+-> POST /payments
+-> Payment = Pending
+-> API publishes payment-created
+-> Worker consumes payment-created
+-> Worker calls Fake Provider
+-> Worker marks Payment = Processing
+-> Fake Provider calls webhook after delay
+-> API marks Payment = Succeeded
+-> API marks Order = Paid
+```
+
+Idempotency rule:
+
+```text
+One OrderId can create only one Payment.
+```
+
+The database unique index on `Payments.OrderId` is the final concurrency guard.
+
+## Load Tests
+
+Start the local stack first:
+
+```powershell
+docker compose up -d --build
+```
+
+### Payment Idempotency
+
+Sends concurrent `POST /payments` requests for the same order.
+
+```powershell
+docker compose run --rm --no-deps -e VUS=20 -e ITERATIONS=20 -e FINAL_STATUS_TIMEOUT_SECONDS=15 k6
+```
+
+Expected result:
+
+```text
+Only one payment is created for the order.
+Payment eventually becomes Succeeded.
+Order eventually becomes Paid.
+```
+
+### API Throughput Baseline
+
+Measures the synchronous API boundary only:
+
+```text
+POST /orders
+POST /payments
+GET /payments/{id}
+```
+
+Run:
+
+```powershell
+docker compose run --rm --no-deps -e VUS=20 -e ITERATIONS=100 k6-api-throughput
+```
+
+This is useful for checking API latency, SQL insert cost, and RabbitMQ publish overhead without waiting for provider/webhook completion.
+
+### Full Payment Throughput
+
+Creates different orders and payments, then waits for the async provider/webhook flow to complete.
+
+```powershell
+docker compose run --rm --no-deps -e VUS=10 -e ITERATIONS=20 -e FINAL_STATUS_TIMEOUT_SECONDS=20 k6-throughput
+```
+
+Expected result:
+
+```text
+Payment = Succeeded
+Order = Paid
+```
+
+### Duplicate Webhook Idempotency
+
+Posts the same successful provider webhook multiple times.
+
+```powershell
+docker compose run --rm --no-deps -e DUPLICATE_WEBHOOK_COUNT=3 -e FINAL_STATUS_TIMEOUT_SECONDS=20 k6-webhook-duplicate
+```
+
+Expected result:
+
+```text
+Payment remains Succeeded.
+Order remains Paid.
+```
+
+### Provider Failure and DLQ
+
+Switch the fake provider mode, rebuild the provider and worker, then run the DLQ verification script.
+
+HTTP 500 failure:
+
+```powershell
+$env:PROVIDER_MOCK_MODE="Http500"
+docker compose up -d --build provider-mock worker
+docker compose run --rm --no-deps -e DLQ_TIMEOUT_SECONDS=20 k6-provider-failure
+```
+
+Timeout failure:
+
+```powershell
+$env:PROVIDER_MOCK_MODE="Timeout"
+docker compose up -d --build provider-mock worker
+docker compose run --rm --no-deps -e DLQ_TIMEOUT_SECONDS=30 k6-provider-failure
+```
+
+Restore success mode:
+
+```powershell
+$env:PROVIDER_MOCK_MODE="Success"
+docker compose up -d --build provider-mock worker
+```
+
+Expected failure result:
+
+```text
+Payment remains Pending.
+Order remains PendingPayment.
+payment-created message reaches payment-created-dlq.
+```
+
+## Worker Scaling
+
+Run multiple Worker instances locally:
+
+```powershell
+docker compose up -d --build --scale worker=5
+```
+
+The Worker service does not use a fixed `container_name`, so Docker Compose can create multiple replicas.
+
+Current Worker tuning options:
+
+```text
+RabbitMQ__PrefetchCount
+RabbitMQ__MaxConcurrentMessages
+```
+
+`PrefetchCount` controls how many unacknowledged messages RabbitMQ can deliver to one Worker instance.
+
+`MaxConcurrentMessages` controls how many messages one Worker process handles at the same time.
+
+With `worker=5` and `MaxConcurrentMessages=5`, the local stack can process up to about 25 messages concurrently.
+
+## Observability
+
+The local stack sends structured logs to Seq:
 
 ```text
 http://localhost:5341
@@ -139,9 +274,7 @@ The API accepts an optional correlation header:
 X-Correlation-Id: CORR-123
 ```
 
-If the header is missing, the API generates one and returns it in the response header.
-
-The same correlation id is stored on the `Payment`, published in the RabbitMQ message, and used by the Worker log scope.
+If missing, the API generates one and returns it in the response header. The same `CorrelationId` is stored on the payment, published in the RabbitMQ message, and used by the Worker log scope.
 
 Useful Seq queries:
 
@@ -151,48 +284,9 @@ PaymentId = '...'
 OrderId = '...'
 ```
 
-Expected local flow:
+## RabbitMQ
 
-```text
-POST /payments
--> Payment created
--> payment-created message published
--> Worker consumed message
--> Worker calls Fake Provider
--> Payment processing
--> Fake Provider webhook marks Payment succeeded
--> Order marked paid
-```
-
-## RabbitMQ Retry and DLQ
-
-The Worker uses a simple fixed retry policy for `payment-created` messages.
-It also supports basic local throughput tuning:
-
-```text
-RabbitMQ:PrefetchCount
-RabbitMQ:MaxConcurrentMessages
-```
-
-`PrefetchCount` controls how many unacknowledged messages RabbitMQ may deliver to the Worker.
-`MaxConcurrentMessages` controls how many messages the Worker process handles at the same time.
-
-Run multiple Worker instances locally:
-
-```powershell
-docker compose up -d --build --scale worker=3
-```
-
-The Worker service does not set a fixed `container_name`, so Docker Compose can create multiple replicas.
-Each Worker instance has its own `MaxConcurrentMessages` limit; with `worker=3` and `MaxConcurrentMessages=5`, the local stack can process up to about 15 payment messages concurrently.
-
-When running k6 against an already scaled Worker group, use `--no-deps` so `docker compose run` does not reconcile dependencies back to the default single Worker:
-
-```powershell
-docker compose run --rm --no-deps -e VUS=10 -e ITERATIONS=20 -e FINAL_STATUS_TIMEOUT_SECONDS=20 k6-throughput
-```
-
-Current local topology:
+Local queues:
 
 ```text
 payment-created
@@ -208,1165 +302,48 @@ Worker consumes payment-created
 -> failure and x-retry-count >= 3: publish to payment-created-dlq, then ack original message
 ```
 
-The first version intentionally avoids delayed retry queues so the failure flow stays easy to inspect.
+This version intentionally uses immediate fixed-count retry instead of delayed retry queues so the failure flow stays easy to inspect.
 
-RabbitMQ UI:
-
-```text
-http://localhost:15672
-```
-
-Default local credentials:
+## Project Structure
 
 ```text
-guest / guest
+PaymentFlowCloud.Api             HTTP API, controllers, middleware, Swagger
+PaymentFlowCloud.Application     Use cases, service interfaces, contracts
+PaymentFlowCloud.Domain          Entities, statuses, state transition rules
+PaymentFlowCloud.Infrastructure  EF Core, repositories, RabbitMQ, provider client
+PaymentFlowCloud.Worker          RabbitMQ consumer and background processing
+PaymentFlowCloud.ProviderMock    Fake external payment provider
+PaymentFlowCloud.Web             React checkout simulation UI
+scripts                          k6 load and reliability tests
 ```
 
-Use the Queues tab to inspect:
-
-```text
-payment-created
-payment-created-dlq
-```
-
-## Fake Provider and Webhook Flow
-
-The local stack includes a minimal fake payment provider.
-
-Current flow:
-
-```text
-POST /payments
--> API stores Payment as Pending
--> API publishes payment-created
--> Worker consumes payment-created
--> Worker calls Fake Provider
--> Fake Provider returns Accepted
--> Worker marks Payment as Processing
--> Fake Provider calls API webhook
--> API marks Payment as Succeeded
--> API marks Order as Paid
-```
-
-Local fake provider endpoint:
-
-```text
-http://localhost:5290/provider/payments
-```
-
-Webhook endpoint exposed by the API:
-
-```text
-POST /webhooks/fake-provider/payment-succeeded
-```
-
-This first version intentionally skips provider signatures and delayed retry queues. It focuses on the minimum async provider callback lifecycle.
-
----
-
-# Core Objectives
-
-This project focuses on:
-
-## Reliability
-
-How to keep systems stable under:
-
-- retries
-- duplicate requests
-- partial failures
-- slow external services
-- webhook failures
-- temporary outages
-
----
-
-## Event-Driven Architecture
-
-Move from:
-
-Synchronous direct API calls
-
-to:
-
-Asynchronous event-driven processing.
-
----
-
-## Observability
-
-Track requests across:
-
-- API
-- Queue
-- Worker
-- Webhook
-- Blob Storage
-- Azure Functions
-
-using:
-
-- TraceId
-- OpenTelemetry
-- Metrics
-- Structured Logs
-- Distributed Tracing
-
----
-
-## Cloud-Native Azure Learning
-
-Practice real Azure services:
-
-- Azure Queue Storage
-- Azure Service Bus
-- Azure Functions
-- Azure Blob Storage
-- Azure Application Insights
-- Azure Container Apps
-- Azure API Management
-
----
-
-# Main Architecture
-
-```text
-Client
-   ↓
-Payment API
-   ↓
-SQL Server
-   ↓
-Queue / Message Bus
-   ↓
-Payment Processor
-   ↓
-Fake Payment Provider
-   ↓
-Webhook Callback
-   ↓
-Merchant Webhook API
-```
-
----
-
-# Project Philosophy
-
-The project intentionally avoids:
-
-- overengineering
-- huge ERP complexity
-- heavy DDD ceremony
-- unnecessary abstractions
-- ultra-complex Clean Architecture
-
-The goal is:
-
-## Practical Distributed Reliability Engineering
-
----
-
-# Repository Structure
-
-```text
-PaymentFlowCloud/
-│
-├── src/
-│   ├── PaymentFlowCloud.Api
-│   ├── PaymentFlowCloud.Application
-│   ├── PaymentFlowCloud.Domain
-│   ├── PaymentFlowCloud.Infrastructure
-│   │
-│   ├── PaymentFlowCloud.Worker
-│   ├── PaymentFlowCloud.ProviderMock
-│   ├── PaymentFlowCloud.WebhookReceiver
-│   │
-│   └── Shared
-│       ├── Contracts
-│       ├── Tracing
-│       ├── Idempotency
-│       └── Observability
-│
-├── docker/
-├── docs/
-├── scripts/
-├── tests/
-└── docker-compose.yml
-```
-
----
-
-# Architecture Style
-
-## Lightweight Clean Architecture
-
-The project uses:
-
-- Domain
-- Application
-- Infrastructure
-
-but avoids excessive abstraction.
-
-The main complexity should live in:
-
-- workflows
-- reliability
-- async processing
-- distributed behaviors
-
-NOT in:
-
-- generic repositories
-- factory chains
-- unnecessary wrappers
-
----
-
-# Main Technologies
-
-## Backend
-
-- ASP.NET Core 8
-- C#
-- Minimal API / Controllers
-
----
-
-## Database
-
-## Local Development
-
-- SQL Server Docker Container
-
-Reason:
-
-- enterprise familiarity
-- realistic transaction behavior
-- EF Core support
-- common enterprise backend usage
-
----
-
-## Azure Cloud
-
-Potential options:
-
-- Azure SQL Database
-- Azure SQL Managed Instance
-- Azure PostgreSQL Flexible Server
-
-Primary recommendation:
-
-## Azure SQL Database
-
-because it is very common in enterprise Azure environments.
-
----
-
-## Messaging
-
-### Local
-
-- RabbitMQ
-
-### Azure
-
-- Azure Service Bus
-- Azure Queue Storage
-
----
-
-## Observability
-
-- Serilog
-- OpenTelemetry
-- Application Insights
-- Seq
-
----
-
-## Cloud
-
-- Azure Functions
-- Azure Blob Storage
-- Azure Container Apps
-- Azure API Management
-
----
-
-# Core Concepts
-
-# 1. Idempotency
-
-## Problem
-
-Users may:
-
-- double click payment button
-- retry requests
-- resend webhook calls
-
-Without idempotency:
-
-- duplicate charges happen
-
----
-
-## Solution
-
-Use:
-
-```http
-Idempotency-Key
-```
-
-Server stores:
-
-```text
-Key
-RequestHash
-Response
-StatusCode
-CreatedAt
-```
-
-If the same request arrives again:
-
-- return previous response
-- do NOT process payment twice
-
----
-
-# 2. TraceId Propagation
-
-Every request generates:
-
-```text
-X-Trace-Id
-```
-
-The TraceId flows through:
-
-- API
-- Queue
-- Worker
-- Webhook
-- Blob Storage
-- Azure Function
-
----
-
-# 3. Event-Driven Architecture
-
-The system uses:
-
-- queues
-- events
-- async processing
-
-instead of:
-
-- direct synchronous calls everywhere
-
----
-
-# 4. Retry Strategy
-
-Retry policies are implemented for:
-
-- webhook failures
-- temporary network issues
-- external provider instability
-
-Example:
-
-```text
-Retry #1 -> 1 min
-Retry #2 -> 5 min
-Retry #3 -> 30 min
-```
-
-After max retry:
-
-```text
-DLQ
-```
-
----
-
-# 5. Eventual Consistency
-
-The system does NOT require strong consistency everywhere.
-
-Example:
-
-- payment completed
-- webhook temporarily failed
-- retry later
-- eventually synchronized
-
----
-
-# 6. Webhook Signature Validation
-
-Webhook payloads are protected using:
-
-```text
-HMACSHA256
-```
-
-Header example:
-
-```text
-X-Signature
-```
-
-This simulates:
-
-- Stripe
-- Adyen
-- payment provider security
-
----
-
-# 7. High Concurrency Protection
-
-Future phases include:
-
-- rate limiting
-- queue buffering
-- backpressure
-- concurrency control
-- retry isolation
-
----
-
-# Fake Payment Provider
-
-The project includes:
-
-```text
-PaymentFlowCloud.ProviderMock
-```
-
-This simulates:
-
-- Stripe-like provider
-- delayed processing
-- webhook callback
-- timeout
-- retry
-- random failures
-- duplicate webhook delivery
-
-Purpose:
-
-Practice real-world distributed payment behavior.
-
----
-
-# Observability
-
-# Logs
-
-Structured logging with:
-
-- TraceId
-- PaymentId
-- Correlation data
-
----
-
-# Metrics
-
-Examples:
-
-```text
-payment_success_total
-payment_failure_total
-webhook_retry_total
-queue_backlog
-```
-
----
-
-# Traces
-
-Distributed tracing across:
-
-```text
-API
-→ Queue
-→ Worker
-→ Webhook
-→ Blob Storage
-```
-
----
-
-# Local Development Stack
-
-## Docker Compose
-
-The local environment should support:
-
-```bash
-docker compose up
-```
-
-and automatically start:
-
-- SQL Server
-- RabbitMQ
-- Seq
-- Payment API
-- Worker
-- ProviderMock
-
----
-
-# Recommended Local Services
-
-## SQL Server
-
-```text
-mcr.microsoft.com/mssql/server
-```
-
----
-
-## RabbitMQ
-
-```text
-rabbitmq:management
-```
-
----
-
-## Seq
-
-For local structured logs.
-
----
-
-# Planned Development Phases
-
-# Phase 1 — Local MVP
-
-## Goal
-
-Build reliable local async payment flow.
-
-## Features
-
-- Create Payment API
-- SQL Server persistence
-- RabbitMQ messaging
-- BackgroundService worker
-- Idempotency
-- TraceId
-- Structured logs
-
----
-
-# Phase 2 — Webhook + Retry
-
-## Features
-
-- Fake payment provider
-- webhook callback
-- webhook retry
-- DLQ
-- signature validation
-- eventual consistency
-
----
-
-# Phase 3 — Observability
-
-## Features
-
-- OpenTelemetry
-- Metrics
-- Distributed tracing
-- Seq dashboards
-- Request correlation
-
----
-
-# Recommended Azure MVP Architecture
-
-```text
-Client
-   ↓
-Azure API Management
-   ↓
-Payment API \(Azure Container Apps\)
-   ↓
-Azure SQL Database
-   ↓
-Azure Queue Storage
-   ↓
-Azure Function
-   ↓
-Fake Payment Provider
-   ↓
-Webhook Callback
-```
-
----
-
-# Why This Azure Architecture
-
-## Azure Container Apps \(ACA\)
-
-Used for:
-
-- Payment API
-- containerized cloud-native hosting
-- autoscaling
-- future KEDA scaling
-- event-driven backend architecture
-
-Reason:
-
-ACA provides a modern cloud-native platform without full Kubernetes complexity.
-
----
-
-## Azure Queue Storage
-
-Used for:
-
-- lightweight async buffering
-- payment processing queue
-- webhook retry queue
-- background task decoupling
-
-Reason:
-
-Simple, low-cost, serverless queueing.
-
----
-
-## Azure Functions
-
-Used for:
-
-- queue-triggered payment processing
-- webhook retry execution
-- async event processing
-- scheduled cleanup jobs
-
-Reason:
-
-Serverless event-driven compute.
-
----
-
-## Azure API Management
-
-Used for:
-
-- API key validation
-- rate limiting
-- centralized external boundary
-- API governance
-- request tracing
-
-Reason:
-
-Simulate enterprise-grade API gateway architecture.
-
----
-
-## Azure SQL Database
-
-Used for:
-
-- payment persistence
-- transaction consistency
-- idempotency storage
-- retry state tracking
-
-Reason:
-
-Common enterprise Azure database choice.
-
----
-
-# MVP Definition
-
-The MVP \(Minimum Viable Product\) should support the complete minimum payment lifecycle:
-
-```text
-POST /payments
-↓
-Idempotency validation
-↓
-Persist payment
-↓
-Send queue message
-↓
-Azure Function processing
-↓
-Call fake provider
-↓
-Webhook callback
-↓
-Update payment status
-↓
-Trace + Logs visible
-```
-
-If this full flow works reliably:
-
-The project MVP is successful.
-
----
-
-# Local Development Strategy
-
-The project should first run fully locally using Docker Compose.
-
-Local stack:
-
-```text
-SQL Server
-RabbitMQ
-Seq
-Payment API
-Worker
-ProviderMock
-```
-
-Goal:
-
-- fast development
-- debugging simplicity
-- understanding distributed behavior locally first
-
----
-
-# Cloud Migration Strategy
-
-After the local version becomes stable:
-
-## Replace RabbitMQ
-
-→ Azure Queue Storage / Azure Service Bus
-
-## Replace BackgroundService
-
-→ Azure Functions
-
-## Replace local containers
-
-→ Azure Container Apps
-
-## Replace local logs
-
-→ Application Insights
-
-This staged migration avoids unnecessary cloud complexity too early.
-
----
-
-# Phase 4 — Azure Cloud Migration
-
-## Replace Local Infrastructure
-
-### RabbitMQ
-
-→ Azure Service Bus
-
-### BackgroundService
-
-→ Azure Functions
-
-### Local Logs
-
-→ Application Insights
-
----
-
-# Phase 5 — Blob Storage
-
-## Features
-
-- PDF receipt generation
-- Blob upload
-- SAS URL generation
-
----
-
-# Phase 6 — High Concurrency
-
-## Features
-
-- ASP.NET Rate Limiting
-- Queue backpressure
-- concurrent worker scaling
-- ACA auto scaling
-- KEDA-based scaling
-
----
-
-# Phase 7 — Chaos Engineering
-
-## Failure Simulation
-
-- webhook 500 errors
-- duplicate webhook delivery
-- slow provider responses
-- DB latency
-- queue overload
-
-Goal:
-
-Validate system resilience.
-
----
-
-# Phase 8 — API Gateway
-
-Potential additions:
-
-- YARP
-- Azure API Management
-
-Features:
-
-- API key
-- throttling
-- routing
-- centralized auth
-- versioning
-
----
-
-# Long-Term Learning Goals
-
-This project aims to practice:
-
-- distributed systems
-- cloud-native architecture
-- reliability engineering
-- event-driven systems
-- observability
-- async workflows
-- queue-based systems
-- Azure cloud architecture
-- backend scalability
-
----
-
-# Important Non-Goals
-
-This project intentionally avoids:
-
-- massive ERP complexity
-- frontend-heavy focus
-- enterprise IAM complexity
-- advanced Kubernetes management
-- excessive DDD ceremony
-- over-engineered abstractions
-
----
-
-# Recommended AI-Assisted Workflow
-
-The project is intentionally designed for AI-assisted development.
-
-Recommended workflow:
-
-1. Define feature goal
-2. Generate initial structure with AI
-3. Review architecture manually
-4. Implement incrementally
-5. Validate behavior with logs/traces
-6. Add observability
-7. Stress test
-8. Refactor only when necessary
-
----
-
-# Recommended First Milestone
-
-The first milestone should already support:
-
-```text
-POST /payments
-↓
-Idempotency validation
-↓
-SQL persistence
-↓
-RabbitMQ event
-↓
-Worker processing
-↓
-Payment status update
-↓
-Structured logs + TraceId
-```
-
-If this works reliably:
-
-The project foundation is already successful.
-
----
-
-# Future Topics
-
-Potential future additions:
-
-- Redis distributed rate limiting
-- circuit breaker with Polly
-- bulkhead isolation
-- outbox pattern
-- inbox pattern
-- saga concepts
-- dead letter replay
-- Grafana dashboards
-- k6 load testing
-- OpenTelemetry Collector
-- distributed cache
-- API throttling
-- service mesh concepts
-
----
-
-# Development Tracking Strategy
-
-To support AI-assisted development across multiple assistants and sessions, the project should maintain explicit tracking documents.
-
-Recommended files:
-
-```text
-/docs
-   ├── roadmap.md
-   ├── progress.md
-   ├── architecture.md
-   ├── decisions.md
-   └── backlog.md
-```
-
----
-
-# roadmap.md
-
-Purpose:
-
-High-level long-term phases.
-
-Example:
-
-```text
-Phase 1 - Local MVP
-Phase 2 - Webhook + Retry
-Phase 3 - Observability
-Phase 4 - Azure Migration
-Phase 5 - High Concurrency
-Phase 6 - Chaos Engineering
-```
-
----
-
-# progress.md
-
-Purpose:
-
-Track completed work.
-
-Example:
-
-```text
-[x] SQL Server Docker
-[x] RabbitMQ Docker
-[x] Seq Docker
-[x] Solution Structure
-[ ] Payment Entity
-[ ] DbContext
-[ ] POST /payments
-[ ] RabbitMQ publish
-[ ] Worker consume
-```
-
-This file becomes the main AI handoff context.
-
----
-
-# architecture.md
-
-Purpose:
-
-Track architecture diagrams and technical structure.
-
-Include:
-
-- event flow
-- async workflow
-- queue topology
-- retry strategy
-- trace propagation
-- cloud architecture
-
----
-
-# decisions.md
-
-Purpose:
-
-Store architectural decisions and reasoning.
-
-Example:
-
-```text
-Why RabbitMQ locally?
-Why ACA instead of AKS?
-Why lightweight clean architecture?
-Why Azure Queue before Service Bus?
-```
-
-This prevents losing architectural context later.
-
----
-
-# backlog.md
-
-Purpose:
-
-Store future ideas without polluting active tasks.
-
-Example:
-
-```text
-- Distributed rate limiting
-- Redis cache
-- Polly circuit breaker
-- KEDA scaling
-- Grafana dashboards
-- OpenTelemetry Collector
-```
-
----
-
-# Recommended AI Workflow
-
-When switching AI assistants:
-
-1. Share README
-2. Share progress.md
-3. Share roadmap.md
-4. Share current branch name
-5. Share latest architecture decision
-
-This minimizes repeated explanations and preserves project continuity.
-
----
-
-# Recommended Branch Strategy
-
-```text
-main
-develop
-feature/*
-```
-
-Examples:
-
-```text
-feature/idempotency
-feature/webhook
-feature/rabbitmq
-feature/observability
-feature/azure-functions
-```
-
----
-
-# Recommended Milestone Strategy
-
-```text
-v0.1-local-mvp
-v0.2-rabbitmq-flow
-v0.3-webhook-retry
-v0.4-observability
-v0.5-azure-functions
-v0.6-aca-cloud
-```
-
----
-
-# Current Recommended Immediate Tasks
-
-## Infrastructure Ready
-
-Completed:
-
-```text
-[x] GitHub repository
-[x] Solution structure
-[x] Docker Compose
-[x] SQL Server
-[x] RabbitMQ
-[x] Seq
-```
-
----
-
-## Current Active Goal
-
-Build the first local payment flow:
-
-```text
-POST /payments
-↓
-Save SQL
-↓
-Publish RabbitMQ message
-↓
-Worker consume
-↓
-Update payment status
-```
-
----
-
-## Immediate Next Tasks
-
-```text
-[x] Create Payment entity
-[x] Create PaymentDbContext
-[x] Configure EF Core
-[x] Create initial migration
-[x] Create POST /payments
-[x] Verify SQL persistence
-[x] Add RabbitMQ publisher
-[x] Add Worker consumer
-[x] Update payment status
-```
-
----
-
-# Final Vision
-
-PaymentFlowCloud is intended to become:
-
-## A practical distributed payment reliability playground
-
-focused on:
-
-- reliability
-- async processing
-- cloud-native architecture
-- observability
-- scalability
-- event-driven systems
-
-rather than:
-
-## a business-heavy ERP application.
-
+## Current Reliability Features
+
+- Database unique constraint for payment idempotency
+- RabbitMQ queue buffering
+- Worker prefetch and local concurrency control
+- Multi-worker scaling
+- Fixed retry count
+- DLQ fallback
+- Duplicate webhook safety
+- Provider timeout and HTTP 500 simulation
+- Operational indexes on `(Status, CreatedAt)` for order/payment scans
+
+## Roadmap
+
+Near-term priorities:
+
+- Prometheus and Grafana for API metrics
+- OpenTelemetry tracing across API, Worker, Provider, and webhook
+- Azure Application Insights integration
+- Azure migration path with Container Apps and queue-based processing
+- Optional provider webhook signature validation
+- Optional operational dashboards for queue backlog and payment states
+
+Deferred intentionally:
+
+- Complex delayed retry topology
+- DLQ replay tooling
+- Redis distributed locking
+- Heavy CQRS/MediatR ceremony
+- Production payment provider integration
