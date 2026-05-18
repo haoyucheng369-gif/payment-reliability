@@ -46,6 +46,12 @@ docker run --rm -i `
 
 The script creates one order in `setup()`, then sends concurrent `POST /payments` requests with the same `orderId`.
 The database unique index on `Payments.OrderId` is the final concurrency guard.
+After the concurrent payment calls finish, `teardown()` polls the asynchronous result and verifies:
+
+```text
+Payment = Succeeded
+Order = Paid
+```
 
 ---
 
