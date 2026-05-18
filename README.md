@@ -128,6 +128,21 @@ RabbitMQ:MaxConcurrentMessages
 `PrefetchCount` controls how many unacknowledged messages RabbitMQ may deliver to the Worker.
 `MaxConcurrentMessages` controls how many messages the Worker process handles at the same time.
 
+Run multiple Worker instances locally:
+
+```powershell
+docker compose up -d --build --scale worker=3
+```
+
+The Worker service does not set a fixed `container_name`, so Docker Compose can create multiple replicas.
+Each Worker instance has its own `MaxConcurrentMessages` limit; with `worker=3` and `MaxConcurrentMessages=5`, the local stack can process up to about 15 payment messages concurrently.
+
+When running k6 against an already scaled Worker group, use `--no-deps` so `docker compose run` does not reconcile dependencies back to the default single Worker:
+
+```powershell
+docker compose run --rm --no-deps -e VUS=10 -e ITERATIONS=20 -e FINAL_STATUS_TIMEOUT_SECONDS=20 k6-throughput
+```
+
 Current local topology:
 
 ```text
