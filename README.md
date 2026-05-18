@@ -79,6 +79,26 @@ Payment remains Succeeded
 Order remains Paid
 ```
 
+Run provider failure verification by switching the fake provider mode, rebuilding the provider and worker, then checking that the failed `payment-created` message reaches the DLQ:
+
+```powershell
+$env:PROVIDER_MOCK_MODE="Http500"
+docker compose up -d --build provider-mock worker
+docker compose run --rm --no-deps -e DLQ_TIMEOUT_SECONDS=20 k6-provider-failure
+$env:PROVIDER_MOCK_MODE="Success"
+docker compose up -d --build provider-mock worker
+```
+
+Supported local provider modes:
+
+```text
+Success
+Http500
+Timeout
+```
+
+`Http500` makes the provider return a synchronous 500 response. `Timeout` delays the provider response beyond the Worker HttpClient timeout. Both modes validate the Worker retry / DLQ path.
+
 ---
 
 ## Local Observability

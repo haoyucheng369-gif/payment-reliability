@@ -38,6 +38,7 @@ public static class DependencyInjection
                 .Value;
 
             client.BaseAddress = new Uri(options.BaseUrl);
+            client.Timeout = TimeSpan.FromSeconds(Math.Max(1, options.TimeoutSeconds));
         });
 
         return services;

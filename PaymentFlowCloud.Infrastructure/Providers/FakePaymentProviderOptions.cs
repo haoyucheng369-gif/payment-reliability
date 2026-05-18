@@ -8,4 +8,7 @@ public class FakePaymentProviderOptions
 
     // provider 异步处理完成后回调 API 的 webhook 地址。
     public string WebhookUrl { get; set; } = "http://localhost:5147/webhooks/fake-provider/payment-succeeded";
+
+    // Worker 调用 provider 的超时时间；用于验证 provider 迟迟不返回时的 retry / DLQ 行为。
+    public int TimeoutSeconds { get; set; } = 5;
 }
