@@ -59,6 +59,8 @@ services:
       RabbitMQ__PrefetchCount: "10"
       RabbitMQ__MaxConcurrentMessages: "5"
       Seq__ServerUrl: "http://seq:80"
+      FakeProviderWebhook__Secret: "local-dev-provider-webhook-secret"
+      FakeProviderWebhook__TimestampToleranceSeconds: "300"
     ports:
       - "5147:8080"
 
@@ -101,6 +103,7 @@ services:
       ASPNETCORE_URLS: "http://+:8080"
       Seq__ServerUrl: "http://seq:80"
       ProviderMock__Mode: "${PROVIDER_MOCK_MODE:-Success}"
+      ProviderMock__WebhookSecret: "local-dev-provider-webhook-secret"
       ProviderMock__WebhookDelaySeconds: "3"
       ProviderMock__TimeoutDelaySeconds: "10"
     ports:
@@ -187,6 +190,7 @@ services:
       BASE_URL: "http://api:8080"
       DUPLICATE_WEBHOOK_COUNT: "3"
       FINAL_STATUS_TIMEOUT_SECONDS: "20"
+      WEBHOOK_SECRET: "local-dev-provider-webhook-secret"
     volumes:
       - ./scripts:/scripts:ro
     command: ["run", "/scripts/webhook-duplicate.k6.js"]

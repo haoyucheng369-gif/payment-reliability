@@ -1,3 +1,4 @@
+import k6crypto from 'k6/crypto'
 import http from 'k6/http'
 import { check, group } from 'k6'
 import { sleep } from 'k6'
@@ -5,6 +6,7 @@ import { sleep } from 'k6'
 const baseUrl = __ENV.BASE_URL ?? 'http://host.docker.internal:5147'
 const duplicateWebhookCount = Number(__ENV.DUPLICATE_WEBHOOK_COUNT ?? 3)
 const finalStatusTimeoutSeconds = Number(__ENV.FINAL_STATUS_TIMEOUT_SECONDS ?? 20)
+const webhookSecret = __ENV.WEBHOOK_SECRET ?? 'local-dev-provider-webhook-secret'
 
 export const options = {
   vus: 1,
@@ -92,18 +94,25 @@ export function setup() {
 export default function (data) {
   group('duplicate succeeded webhook is idempotent', () => {
     for (let index = 1; index <= duplicateWebhookCount; index += 1) {
+      const rawBody = JSON.stringify({
+        paymentId: data.payment.id,
+        providerPaymentId: `fp_duplicate_${data.payment.id}`,
+        status: 'Succeeded',
+        correlationId: data.correlationId,
+      })
+      const timestamp = Math.floor(Date.now() / 1000)
+      const signaturePayload = `${timestamp}.${rawBody}`
+      const signature = `sha256=${k6crypto.hmac('sha256', webhookSecret, signaturePayload, 'hex')}`
+
       const duplicateWebhookResponse = http.post(
         `${baseUrl}/webhooks/fake-provider/payment-succeeded`,
-        JSON.stringify({
-          paymentId: data.payment.id,
-          providerPaymentId: `fp_duplicate_${data.payment.id}`,
-          status: 'Succeeded',
-          correlationId: data.correlationId,
-        }),
+        rawBody,
         {
           headers: {
             'Content-Type': 'application/json',
             'X-Correlation-Id': data.correlationId,
+            'X-Provider-Timestamp': timestamp.toString(),
+            'X-Provider-Signature': signature,
           },
         },
       )

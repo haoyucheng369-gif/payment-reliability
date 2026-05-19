@@ -1,9 +1,12 @@
+using System.Text;
+using System.Text.Json;
+using Microsoft.Extensions.Options;
 using PaymentFlowCloud.Application.Contracts;
+using PaymentFlowCloud.Application.Security;
 using PaymentFlowCloud.ProviderMock;
 using Serilog;
 using Serilog.Context;
 using Serilog.Events;
-using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -51,7 +54,7 @@ app.MapPost("/provider/payments", async (
 
     if (string.Equals(providerOptions.Mode, "Timeout", StringComparison.OrdinalIgnoreCase))
     {
-        // 模拟第三方支付平台长时间不响应，Worker HttpClient 超时后应走 retry / DLQ。
+        // 模拟第三方支付平台长时间不响应，Worker HttpClient 超时后应该走 retry / DLQ。
         logger.LogWarning(
             "Fake provider delaying response for payment {PaymentId} to simulate timeout",
             request.PaymentId);
@@ -92,18 +95,33 @@ app.MapPost("/provider/payments", async (
                 CorrelationId = request.CorrelationId
             };
 
+            var rawBody = JsonSerializer.Serialize(
+                webhook,
+                new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            var signature = FakeProviderWebhookSignature.Create(
+                providerOptions.WebhookSecret,
+                timestamp,
+                rawBody);
+
             var client = httpClientFactory.CreateClient();
             using var httpRequest = new HttpRequestMessage(HttpMethod.Post, request.WebhookUrl)
             {
-                Content = JsonContent.Create(webhook)
+                Content = new StringContent(rawBody, Encoding.UTF8, "application/json")
             };
             httpRequest.Headers.TryAddWithoutValidation("X-Correlation-Id", request.CorrelationId);
+            httpRequest.Headers.TryAddWithoutValidation(
+                FakeProviderWebhookSignature.TimestampHeaderName,
+                timestamp.ToString());
+            httpRequest.Headers.TryAddWithoutValidation(
+                FakeProviderWebhookSignature.SignatureHeaderName,
+                signature);
 
             using var response = await client.SendAsync(httpRequest, CancellationToken.None);
             response.EnsureSuccessStatusCode();
 
             logger.LogInformation(
-                "Fake provider sent succeeded webhook for payment {PaymentId}",
+                "Fake provider sent signed succeeded webhook for payment {PaymentId}",
                 request.PaymentId);
         }
         catch (Exception ex)

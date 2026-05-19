@@ -15,6 +15,7 @@ It is not intended to become a real payment provider. The goal is to practice pr
 - Payment status flow: `Pending -> Processing -> Succeeded`
 - Order status flow: `PendingPayment -> Paid`
 - Provider failure simulation: `Success`, `Http500`, `Timeout`
+- HMAC-signed fake provider webhooks
 - Worker retry and DLQ handling
 - Multi-worker local scaling
 - Seq structured logs with `CorrelationId`
@@ -117,7 +118,7 @@ POST /orders
 -> Worker consumes payment-created
 -> Worker calls Fake Provider
 -> Worker marks Payment = Processing
--> Fake Provider calls webhook after delay
+-> Fake Provider calls signed webhook after delay
 -> API marks Payment = Succeeded
 -> API marks Order = Paid
 ```
@@ -200,6 +201,13 @@ Expected result:
 ```text
 Payment remains Succeeded.
 Order remains Paid.
+```
+
+The script signs each duplicate webhook with the local fake provider secret:
+
+```text
+X-Provider-Timestamp
+X-Provider-Signature
 ```
 
 ### Provider Failure and DLQ
@@ -326,6 +334,7 @@ scripts                          k6 load and reliability tests
 - Fixed retry count
 - DLQ fallback
 - Duplicate webhook safety
+- HMAC webhook signature validation
 - Provider timeout and HTTP 500 simulation
 - Operational indexes on `(Status, CreatedAt)` for order/payment scans
 
@@ -337,7 +346,6 @@ Near-term priorities:
 - OpenTelemetry tracing across API, Worker, Provider, and webhook
 - Azure Application Insights integration
 - Azure migration path with Container Apps and queue-based processing
-- Optional provider webhook signature validation
 - Optional operational dashboards for queue backlog and payment states
 
 Deferred intentionally:

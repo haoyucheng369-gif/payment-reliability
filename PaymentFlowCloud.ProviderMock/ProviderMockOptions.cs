@@ -5,6 +5,9 @@ public class ProviderMockOptions
     // Success: 正常 accepted + webhook；Http500: 同步返回 500；Timeout: 延迟到 Worker 超时。
     public string Mode { get; set; } = "Success";
 
+    // Provider webhook 共享密钥，用来生成 HMAC 签名。
+    public string WebhookSecret { get; set; } = "local-dev-provider-webhook-secret";
+
     // 正常成功模式下，provider 延迟几秒后回调 webhook。
     public int WebhookDelaySeconds { get; set; } = 3;
 
