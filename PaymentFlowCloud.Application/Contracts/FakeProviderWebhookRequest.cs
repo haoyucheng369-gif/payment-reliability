@@ -1,6 +1,6 @@
 namespace PaymentFlowCloud.Application.Contracts;
 
-// fake provider 主动回调 API 时发送的支付结果。
+// Fake provider 主动回调 API 时发送的支付结果。
 public class FakeProviderWebhookRequest
 {
     // 回调必须带回本系统 PaymentId，API 才能定位并更新支付记录。

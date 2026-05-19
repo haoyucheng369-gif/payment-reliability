@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using PaymentFlowCloud.Api.Errors;
 using PaymentFlowCloud.Api.HealthChecks;
 using PaymentFlowCloud.Api.Observability;
+using PaymentFlowCloud.Api.Security;
 using PaymentFlowCloud.Application;
 using PaymentFlowCloud.Infrastructure;
 using PaymentFlowCloud.Infrastructure.Persistence;
@@ -28,6 +29,8 @@ builder.Services.AddOpenApi();
 builder.Services.AddSwaggerGen();
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
+builder.Services.Configure<FakeProviderWebhookOptions>(
+    builder.Configuration.GetSection("FakeProviderWebhook"));
 builder.Services
     .AddControllers()
     .AddJsonOptions(options =>
@@ -69,10 +72,10 @@ app.UseHttpsRedirection();
 // liveness 只表示 API 进程存活，不依赖 SQL Server 或 RabbitMQ。
 app.MapGet("/health", () => Results.Ok(new { status = "Healthy" }));
 
-// readiness 检查下游依赖，供 Docker/Azure 判断服务是否真正可接流量。
+// readiness 检查下游依赖，便于 Docker/Azure 判断服务是否真正可接流量。
 app.MapHealthChecks("/health/ready", HealthCheckResponseWriter.CreateOptions());
 
-// 使用标准 Controller 路由，支付和订单入口集中在 Controllers 目录。
+// 使用标准 Controller 路由，支付、订单和 webhook 入口集中在 Controllers 目录。
 app.MapControllers();
 
 app.Run();
@@ -82,7 +85,7 @@ static async Task ApplyDatabaseMigrationsAsync(WebApplication app)
     using var scope = app.Services.CreateScope();
     var dbContext = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
 
-    // Docker Compose 首次启动时 SQL Server 可能刚变为 healthy 但尚未完全可用，这里短重试提升一键启动稳定性。
+    // Docker Compose 首次启动时 SQL Server 可能刚变成 healthy 但尚未完全可用，这里短重试提升一键启动稳定性。
     const int maxAttempts = 10;
 
     for (var attempt = 1; attempt <= maxAttempts; attempt++)
