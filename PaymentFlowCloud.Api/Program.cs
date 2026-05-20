@@ -7,6 +7,7 @@ using PaymentFlowCloud.Api.Security;
 using PaymentFlowCloud.Application;
 using PaymentFlowCloud.Infrastructure;
 using PaymentFlowCloud.Infrastructure.Persistence;
+using Prometheus;
 using Serilog;
 using Serilog.Events;
 
@@ -59,6 +60,9 @@ app.UseMiddleware<CorrelationIdMiddleware>();
 // 全局异常处理统一输出 ProblemDetails，避免各 controller 分散处理通用异常。
 app.UseExceptionHandler();
 
+// 记录 HTTP 请求数量、状态码和耗时，Prometheus 会从 /metrics 定时抓取。
+app.UseHttpMetrics();
+
 // 开发环境暴露 OpenAPI 描述和 Swagger UI，便于本地直接调试接口。
 if (app.Environment.IsDevelopment())
 {
@@ -74,6 +78,9 @@ app.MapGet("/health", () => Results.Ok(new { status = "Healthy" }));
 
 // readiness 检查下游依赖，便于 Docker/Azure 判断服务是否真正可接流量。
 app.MapHealthChecks("/health/ready", HealthCheckResponseWriter.CreateOptions());
+
+// /metrics 使用 Prometheus exposition format，供 Prometheus 定时抓取。
+app.MapMetrics();
 
 // 使用标准 Controller 路由，支付、订单和 webhook 入口集中在 Controllers 目录。
 app.MapControllers();
