@@ -1,6 +1,6 @@
 # PaymentFlowCloud
 
-PaymentFlowCloud is a local-first payment reliability playground built with ASP.NET Core, SQL Server, RabbitMQ, Docker Compose, Seq, React, and k6.
+PaymentFlowCloud is a local-first payment reliability playground built with ASP.NET Core, SQL Server, RabbitMQ, Docker Compose, Seq, Prometheus, Grafana, React, and k6.
 
 It is not intended to become a real payment provider. The goal is to practice practical backend reliability patterns around payment creation, idempotency, asynchronous processing, webhooks, retries, DLQ handling, load testing, and observability.
 
@@ -19,6 +19,7 @@ It is not intended to become a real payment provider. The goal is to practice pr
 - Worker retry and DLQ handling
 - Multi-worker local scaling
 - Seq structured logs with `CorrelationId`
+- Prometheus and Grafana API metrics
 - React checkout simulation UI
 - k6 scripts for idempotency, throughput, duplicate webhooks, and provider failure
 
@@ -96,6 +97,8 @@ Web UI:      http://localhost:5173
 Swagger:     http://localhost:5147/swagger
 RabbitMQ:    http://localhost:15672
 Seq:         http://localhost:5341
+Prometheus:  http://localhost:9090
+Grafana:     http://localhost:3000
 Provider:    http://localhost:5290/provider/payments
 ```
 
@@ -269,6 +272,45 @@ RabbitMQ__MaxConcurrentMessages
 With `worker=5` and `MaxConcurrentMessages=5`, the local stack can process up to about 25 messages concurrently.
 
 ## Observability
+
+The API exposes Prometheus metrics:
+
+```text
+http://localhost:5147/metrics
+```
+
+Prometheus scrapes the API every 5 seconds:
+
+```text
+http://localhost:9090
+```
+
+Grafana is preconfigured with a Prometheus datasource and a `PaymentFlowCloud API` dashboard:
+
+```text
+http://localhost:3000
+```
+
+Grafana credentials:
+
+```text
+admin / admin
+```
+
+The local API dashboard focuses on:
+
+```text
+API request rate
+API p95 / p99 latency
+API 5xx error ratio
+API responses by status code
+```
+
+Run k6 while Grafana is open to see the API metrics move:
+
+```powershell
+docker compose run --rm --no-deps -e VUS=100 -e ITERATIONS=3000 k6-api-throughput
+```
 
 The local stack sends structured logs to Seq:
 
