@@ -1,84 +1,157 @@
 # PaymentFlowCloud
 
-PaymentFlowCloud is a local-first payment reliability playground built with ASP.NET Core, SQL Server, RabbitMQ, Docker Compose, Seq, Prometheus, Grafana, React, and k6.
+PaymentFlowCloud is a production-style payment processing sample focused on the reliability problems that usually appear around checkout and payment confirmation: duplicate payment requests, asynchronous provider processing, webhook delivery, transient failures, dead-letter handling, and operational visibility.
 
-It is not intended to become a real payment provider. The goal is to practice practical backend reliability patterns around payment creation, idempotency, asynchronous processing, webhooks, retries, DLQ handling, load testing, and observability.
+The system models an e-commerce payment flow where an order is created, a payment is created idempotently, the payment is processed asynchronously through a message broker and worker, a payment provider confirms the result through a signed webhook, and the local order/payment state is updated consistently.
 
-## Current Capabilities
+## Problems Addressed
 
-- Order creation API
-- Idempotent payment creation by `OrderId`
-- SQL Server persistence with EF Core migrations
-- RabbitMQ `payment-created` queue
-- Background Worker consumer
-- Fake payment provider with delayed webhook callback
-- Payment status flow: `Pending -> Processing -> Succeeded`
-- Order status flow: `PendingPayment -> Paid`
-- Provider failure simulation: `Success`, `Http500`, `Timeout`
-- HMAC-signed fake provider webhooks
-- Worker retry and DLQ handling
-- Multi-worker local scaling
-- Seq structured logs with `CorrelationId`
-- Prometheus and Grafana API metrics
-- React checkout simulation UI
-- k6 scripts for idempotency, throughput, duplicate webhooks, and provider failure
+- Prevent duplicate payments for the same order under concurrent requests
+- Keep the API fast by moving provider communication to RabbitMQ and a Worker
+- Track payment progress through explicit order and payment statuses
+- Handle provider HTTP 500 and timeout failures with Worker retry and DLQ fallback
+- Validate provider webhooks with HMAC signatures and timestamp tolerance
+- Keep webhook handling idempotent when duplicate callbacks arrive
+- Retry webhook delivery from the provider side when the API is temporarily unavailable
+- Support local multi-worker scaling with RabbitMQ prefetch and concurrency controls
+- Expose structured logs, correlation IDs, API metrics, latency, request rate, and 5xx ratio
+- Provide reproducible k6 scenarios for idempotency, throughput, webhook duplication, and provider failure
 
-## Architecture
+## System Architecture
 
-```text
-React Web
-   |
-   v
-Payment API
-   |
-   +--> SQL Server
-   |
-   +--> RabbitMQ payment-created
-             |
-             v
-        Worker Consumer
-             |
-             v
-        Fake Provider
-             |
-             v
-        API Webhook
-             |
-             v
-        SQL Server status update
+```mermaid
+flowchart LR
+    User[User / Browser] --> Web[React Checkout UI]
+    Web --> Api[PaymentFlowCloud.Api]
+    Api --> Sql[(SQL Server)]
+    Api --> Rabbit[(RabbitMQ)]
+    Rabbit --> Worker[PaymentFlowCloud.Worker]
+    Worker --> Provider[PaymentFlowCloud.ProviderMock]
+    Provider --> ApiWebhook[API Webhook Endpoint]
+    ApiWebhook --> Sql
+    Api --> Seq[Seq Logs]
+    Worker --> Seq
+    Provider --> Seq
+    Api --> Metrics[/Prometheus Metrics/]
+    Prometheus[Prometheus] --> Metrics
+    Grafana[Grafana] --> Prometheus
 ```
 
-Failure path:
+## Payment Flow
 
-```text
-Worker calls Fake Provider
-   |
-   +--> Provider returns 500 or times out
-   |
-   +--> Worker retries payment-created
-   |
-   +--> Max retries reached
-   |
-   v
-payment-created-dlq
+```mermaid
+sequenceDiagram
+    participant Web as React UI
+    participant API as Payment API
+    participant DB as SQL Server
+    participant MQ as RabbitMQ
+    participant Worker as Worker Consumer
+    participant Provider as Fake Provider
+
+    Web->>API: POST /orders
+    API->>DB: Insert Order(PendingPayment)
+    API-->>Web: Order
+
+    Web->>API: POST /payments(orderId)
+    API->>DB: Insert Payment(Pending)
+    API->>MQ: Publish payment-created
+    API-->>Web: Payment
+
+    Worker->>MQ: Consume payment-created
+    Worker->>Provider: Create provider payment
+    Provider-->>Worker: Accepted
+    Worker->>DB: Payment -> Processing
+
+    Provider-->>Provider: Wait 3s
+    Provider->>API: Signed webhook(payment succeeded)
+    API->>DB: Payment -> Succeeded
+    API->>DB: Order -> Paid
+    API-->>Provider: 200 OK
 ```
+
+## Status Model
+
+```mermaid
+stateDiagram-v2
+    [*] --> PendingPayment: POST /orders
+    PendingPayment --> Paid: provider webhook succeeded
+```
+
+```mermaid
+stateDiagram-v2
+    [*] --> Pending: POST /payments
+    Pending --> Processing: Worker accepted by provider
+    Processing --> Succeeded: provider webhook succeeded
+```
+
+## Reliability Paths
+
+### Payment Idempotency
+
+```mermaid
+flowchart TD
+    A[POST /payments with OrderId] --> B{Payment exists for OrderId?}
+    B -->|Yes| C[Return existing Payment]
+    B -->|No| D[Insert Payment]
+    D --> E{Unique index conflict?}
+    E -->|No| F[Publish payment-created]
+    E -->|Yes| G[Query existing Payment]
+    G --> C
+```
+
+One `OrderId` can create only one payment. The unique index on `Payments.OrderId` is the final concurrency guard.
+
+### Worker Retry and DLQ
+
+```mermaid
+flowchart TD
+    A[Worker consumes payment-created] --> B[Call Fake Provider]
+    B --> C{Provider call succeeded?}
+    C -->|Yes| D[Ack message]
+    C -->|No| E{Retry count < max?}
+    E -->|Yes| F[Republish to payment-created with x-retry-count + 1]
+    F --> D
+    E -->|No| G[Publish to payment-created-dlq]
+    G --> D
+```
+
+This version intentionally uses immediate fixed-count retry instead of delayed retry queues so the failure flow stays easy to inspect.
+
+### Provider Webhook Retry
+
+```mermaid
+flowchart TD
+    A[Provider sends signed webhook] --> B{API response}
+    B -->|2xx| C[Stop]
+    B -->|5xx / 408 / 429 / timeout / network error| D{Attempts left?}
+    D -->|Yes| E[Wait then retry]
+    E --> A
+    D -->|No| F[Log exhausted delivery]
+    B -->|Other 4xx| G[Stop as non-retryable]
+```
+
+Every retry creates a fresh timestamp and HMAC signature.
 
 ## Local Stack
 
 Docker Compose starts:
 
-- `api`: ASP.NET Core Payment API
-- `worker`: RabbitMQ consumer and provider caller
-- `provider-mock`: fake payment provider and webhook sender
-- `web`: React checkout UI
-- `sqlserver`: local SQL Server
-- `rabbitmq`: RabbitMQ with management UI
-- `seq`: local structured log viewer
-- `k6-*`: on-demand load test runners
+| Service | Purpose |
+| --- | --- |
+| `api` | ASP.NET Core Payment API, Swagger, metrics, webhook endpoint |
+| `worker` | RabbitMQ consumer and provider caller |
+| `provider-mock` | Fake external payment provider and webhook sender |
+| `web` | React checkout simulation UI |
+| `sqlserver` | Local SQL Server |
+| `rabbitmq` | RabbitMQ broker and management UI |
+| `seq` | Structured log viewer |
+| `prometheus` | Metrics scraper |
+| `grafana` | Metrics dashboard |
+| `k6-*` | On-demand load and reliability tests |
 
 ## Run Locally
 
-Start the stack:
+Start everything:
 
 ```powershell
 docker compose up -d --build
@@ -90,61 +163,45 @@ Apply database migrations:
 dotnet ef database update --project PaymentFlowCloud.Infrastructure --startup-project PaymentFlowCloud.Api
 ```
 
-Useful local URLs:
+Useful URLs:
+
+| Tool | URL |
+| --- | --- |
+| React UI | http://localhost:5173 |
+| Swagger | http://localhost:5147/swagger |
+| RabbitMQ | http://localhost:15672 |
+| Seq | http://localhost:5341 |
+| Prometheus | http://localhost:9090 |
+| Grafana | http://localhost:3000 |
+| ProviderMock | http://localhost:5290/provider/payments |
+
+Default local credentials:
+
+| Tool | Credentials |
+| --- | --- |
+| RabbitMQ | `guest / guest` |
+| Grafana | `admin / admin` |
+
+## Demo Scenarios
+
+### 1. Normal Checkout Flow
+
+Open the React UI and use the checkout flow:
 
 ```text
-Web UI:      http://localhost:5173
-Swagger:     http://localhost:5147/swagger
-RabbitMQ:    http://localhost:15672
-Seq:         http://localhost:5341
-Prometheus:  http://localhost:9090
-Grafana:     http://localhost:3000
-Provider:    http://localhost:5290/provider/payments
+http://localhost:5173
 ```
 
-RabbitMQ credentials:
+Expected result:
 
 ```text
-guest / guest
+Order = Paid
+Payment = Succeeded
 ```
 
-## Payment Flow
+### 2. Same Order, Concurrent Payment Requests
 
-Normal flow:
-
-```text
-POST /orders
--> Order = PendingPayment
--> POST /payments
--> Payment = Pending
--> API publishes payment-created
--> Worker consumes payment-created
--> Worker calls Fake Provider
--> Worker marks Payment = Processing
--> Fake Provider calls signed webhook after delay
--> API marks Payment = Succeeded
--> API marks Order = Paid
-```
-
-Idempotency rule:
-
-```text
-One OrderId can create only one Payment.
-```
-
-The database unique index on `Payments.OrderId` is the final concurrency guard.
-
-## Load Tests
-
-Start the local stack first:
-
-```powershell
-docker compose up -d --build
-```
-
-### Payment Idempotency
-
-Sends concurrent `POST /payments` requests for the same order.
+This sends concurrent `POST /payments` requests for the same order.
 
 ```powershell
 docker compose run --rm --no-deps -e VUS=20 -e ITERATIONS=20 -e FINAL_STATUS_TIMEOUT_SECONDS=15 k6
@@ -158,9 +215,9 @@ Payment eventually becomes Succeeded.
 Order eventually becomes Paid.
 ```
 
-### API Throughput Baseline
+### 3. API Throughput Baseline
 
-Measures the synchronous API boundary only:
+This measures the synchronous API boundary:
 
 ```text
 POST /orders
@@ -174,11 +231,11 @@ Run:
 docker compose run --rm --no-deps -e VUS=20 -e ITERATIONS=100 k6-api-throughput
 ```
 
-This is useful for checking API latency, SQL insert cost, and RabbitMQ publish overhead without waiting for provider/webhook completion.
+Use this to observe request rate, latency, SQL insert cost, and RabbitMQ publish overhead.
 
-### Full Payment Throughput
+### 4. Full Async Payment Throughput
 
-Creates different orders and payments, then waits for the async provider/webhook flow to complete.
+This creates different orders and payments, then waits for the provider/webhook flow.
 
 ```powershell
 docker compose run --rm --no-deps -e VUS=10 -e ITERATIONS=20 -e FINAL_STATUS_TIMEOUT_SECONDS=20 k6-throughput
@@ -191,9 +248,9 @@ Payment = Succeeded
 Order = Paid
 ```
 
-### Duplicate Webhook Idempotency
+### 5. Duplicate Webhook Idempotency
 
-Posts the same successful provider webhook multiple times.
+This posts the same successful provider webhook multiple times.
 
 ```powershell
 docker compose run --rm --no-deps -e DUPLICATE_WEBHOOK_COUNT=3 -e FINAL_STATUS_TIMEOUT_SECONDS=20 k6-webhook-duplicate
@@ -206,16 +263,7 @@ Payment remains Succeeded.
 Order remains Paid.
 ```
 
-The script signs each duplicate webhook with the local fake provider secret:
-
-```text
-X-Provider-Timestamp
-X-Provider-Signature
-```
-
-### Provider Failure and DLQ
-
-Switch the fake provider mode, rebuild the provider and worker, then run the DLQ verification script.
+### 6. Provider Failure and DLQ
 
 HTTP 500 failure:
 
@@ -248,30 +296,26 @@ Order remains PendingPayment.
 payment-created message reaches payment-created-dlq.
 ```
 
-## Worker Scaling
+### 7. Worker Scaling
 
-Run multiple Worker instances locally:
+Run multiple Worker instances:
 
 ```powershell
 docker compose up -d --build --scale worker=5
 ```
 
-The Worker service does not use a fixed `container_name`, so Docker Compose can create multiple replicas.
-
 Current Worker tuning options:
 
-```text
-RabbitMQ__PrefetchCount
-RabbitMQ__MaxConcurrentMessages
-```
-
-`PrefetchCount` controls how many unacknowledged messages RabbitMQ can deliver to one Worker instance.
-
-`MaxConcurrentMessages` controls how many messages one Worker process handles at the same time.
+| Option | Meaning |
+| --- | --- |
+| `RabbitMQ__PrefetchCount` | How many unacknowledged messages RabbitMQ can deliver to one Worker instance |
+| `RabbitMQ__MaxConcurrentMessages` | How many messages one Worker process handles at the same time |
 
 With `worker=5` and `MaxConcurrentMessages=5`, the local stack can process up to about 25 messages concurrently.
 
 ## Observability
+
+### Metrics
 
 The API exposes Prometheus metrics:
 
@@ -291,26 +335,20 @@ Grafana is preconfigured with a Prometheus datasource and a `PaymentFlowCloud AP
 http://localhost:3000
 ```
 
-Grafana credentials:
+The dashboard focuses on:
 
-```text
-admin / admin
-```
+- API request rate
+- API p95 / p99 latency
+- API 5xx error ratio
+- API responses by status code
 
-The local API dashboard focuses on:
-
-```text
-API request rate
-API p95 / p99 latency
-API 5xx error ratio
-API responses by status code
-```
-
-Run k6 while Grafana is open to see the API metrics move:
+Run k6 while Grafana is open to see metrics move:
 
 ```powershell
 docker compose run --rm --no-deps -e VUS=100 -e ITERATIONS=3000 k6-api-throughput
 ```
+
+### Logs
 
 The local stack sends structured logs to Seq:
 
@@ -324,7 +362,7 @@ The API accepts an optional correlation header:
 X-Correlation-Id: CORR-123
 ```
 
-If missing, the API generates one and returns it in the response header. The same `CorrelationId` is stored on the payment, published in the RabbitMQ message, and used by the Worker log scope.
+If missing, the API generates one and returns it in the response header. The same `CorrelationId` is stored on the payment, published in the RabbitMQ message, and used by the Worker and Provider logs.
 
 Useful Seq queries:
 
@@ -343,7 +381,7 @@ payment-created
 payment-created-dlq
 ```
 
-Retry behavior:
+Message retry is currently simple and immediate:
 
 ```text
 Worker consumes payment-created
@@ -352,19 +390,18 @@ Worker consumes payment-created
 -> failure and x-retry-count >= 3: publish to payment-created-dlq, then ack original message
 ```
 
-This version intentionally uses immediate fixed-count retry instead of delayed retry queues so the failure flow stays easy to inspect.
-
 ## Project Structure
 
 ```text
-PaymentFlowCloud.Api             HTTP API, controllers, middleware, Swagger
+PaymentFlowCloud.Api             HTTP API, controllers, middleware, Swagger, metrics
 PaymentFlowCloud.Application     Use cases, service interfaces, contracts
 PaymentFlowCloud.Domain          Entities, statuses, state transition rules
 PaymentFlowCloud.Infrastructure  EF Core, repositories, RabbitMQ, provider client
 PaymentFlowCloud.Worker          RabbitMQ consumer and background processing
-PaymentFlowCloud.ProviderMock    Fake external payment provider
+PaymentFlowCloud.ProviderMock    Fake external payment provider and webhook sender
 PaymentFlowCloud.Web             React checkout simulation UI
-scripts                          k6 load and reliability tests
+docker                          Prometheus and Grafana provisioning
+scripts                         k6 load and reliability tests
 ```
 
 ## Current Reliability Features
@@ -373,28 +410,20 @@ scripts                          k6 load and reliability tests
 - RabbitMQ queue buffering
 - Worker prefetch and local concurrency control
 - Multi-worker scaling
-- Fixed retry count
+- Fixed-count Worker retry
 - DLQ fallback
 - Duplicate webhook safety
 - HMAC webhook signature validation
 - Provider webhook delivery retry
 - Provider timeout and HTTP 500 simulation
-
-Provider webhook retry behavior:
-
-```text
-Provider sends signed webhook
--> 2xx: stop
--> timeout, network error, 5xx, 408, or 429: retry up to 3 attempts
--> 4xx: stop because the request is invalid or unauthorized
-```
 - Operational indexes on `(Status, CreatedAt)` for order/payment scans
+- Structured logs with `CorrelationId`
+- API metrics dashboard
 
 ## Roadmap
 
 Near-term priorities:
 
-- Prometheus and Grafana for API metrics
 - OpenTelemetry tracing across API, Worker, Provider, and webhook
 - Azure Application Insights integration
 - Azure migration path with Container Apps and queue-based processing
