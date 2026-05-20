@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
@@ -44,7 +45,7 @@ app.MapPost("/provider/payments", async (
 
     if (string.Equals(providerOptions.Mode, "Http500", StringComparison.OrdinalIgnoreCase))
     {
-        // 模拟第三方支付平台同步故障，Worker 应该走 retry / DLQ。
+        // 模拟第三方支付平台同步故障，Worker 应该进入 retry / DLQ。
         logger.LogWarning(
             "Fake provider returning HTTP 500 for payment {PaymentId}",
             request.PaymentId);
@@ -54,7 +55,7 @@ app.MapPost("/provider/payments", async (
 
     if (string.Equals(providerOptions.Mode, "Timeout", StringComparison.OrdinalIgnoreCase))
     {
-        // 模拟第三方支付平台长时间不响应，Worker HttpClient 超时后应该走 retry / DLQ。
+        // 模拟第三方支付平台长时间不响应，Worker HttpClient 超时后应该进入 retry / DLQ。
         logger.LogWarning(
             "Fake provider delaying response for payment {PaymentId} to simulate timeout",
             request.PaymentId);
@@ -77,11 +78,11 @@ app.MapPost("/provider/payments", async (
 
     _ = Task.Run(async () =>
     {
+        using var callbackCorrelationScope = LogContext.PushProperty("CorrelationId", request.CorrelationId);
+        using var callbackPaymentScope = LogContext.PushProperty("PaymentId", request.PaymentId);
+
         try
         {
-            using var callbackCorrelationScope = LogContext.PushProperty("CorrelationId", request.CorrelationId);
-            using var callbackPaymentScope = LogContext.PushProperty("PaymentId", request.PaymentId);
-
             // 模拟第三方支付平台异步处理后主动回调商户 webhook。
             await Task.Delay(
                 TimeSpan.FromSeconds(Math.Max(1, providerOptions.WebhookDelaySeconds)),
@@ -98,37 +99,22 @@ app.MapPost("/provider/payments", async (
             var rawBody = JsonSerializer.Serialize(
                 webhook,
                 new JsonSerializerOptions(JsonSerializerDefaults.Web));
-            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-            var signature = FakeProviderWebhookSignature.Create(
-                providerOptions.WebhookSecret,
-                timestamp,
-                rawBody);
 
             var client = httpClientFactory.CreateClient();
-            using var httpRequest = new HttpRequestMessage(HttpMethod.Post, request.WebhookUrl)
-            {
-                Content = new StringContent(rawBody, Encoding.UTF8, "application/json")
-            };
-            httpRequest.Headers.TryAddWithoutValidation("X-Correlation-Id", request.CorrelationId);
-            httpRequest.Headers.TryAddWithoutValidation(
-                FakeProviderWebhookSignature.TimestampHeaderName,
-                timestamp.ToString());
-            httpRequest.Headers.TryAddWithoutValidation(
-                FakeProviderWebhookSignature.SignatureHeaderName,
-                signature);
-
-            using var response = await client.SendAsync(httpRequest, CancellationToken.None);
-            response.EnsureSuccessStatusCode();
-
-            logger.LogInformation(
-                "Fake provider sent signed succeeded webhook for payment {PaymentId}",
-                request.PaymentId);
+            await SendWebhookWithRetryAsync(
+                client,
+                request.WebhookUrl,
+                request.CorrelationId,
+                request.PaymentId,
+                providerOptions,
+                rawBody,
+                logger);
         }
         catch (Exception ex)
         {
             logger.LogError(
                 ex,
-                "Fake provider failed to send webhook for payment {PaymentId}",
+                "Fake provider stopped webhook delivery for payment {PaymentId}",
                 request.PaymentId);
         }
     }, CancellationToken.None);
@@ -141,3 +127,112 @@ app.MapPost("/provider/payments", async (
 });
 
 app.Run();
+
+static async Task SendWebhookWithRetryAsync(
+    HttpClient client,
+    string webhookUrl,
+    string correlationId,
+    Guid paymentId,
+    ProviderMockOptions providerOptions,
+    string rawBody,
+    Microsoft.Extensions.Logging.ILogger logger)
+{
+    var maxAttempts = Math.Max(1, providerOptions.WebhookMaxRetryCount);
+    var baseDelaySeconds = Math.Max(1, providerOptions.WebhookRetryBaseDelaySeconds);
+
+    for (var attempt = 1; attempt <= maxAttempts; attempt++)
+    {
+        try
+        {
+            using var httpRequest = CreateSignedWebhookRequest(
+                webhookUrl,
+                correlationId,
+                providerOptions.WebhookSecret,
+                rawBody);
+
+            using var response = await client.SendAsync(httpRequest, CancellationToken.None);
+            if (response.IsSuccessStatusCode)
+            {
+                logger.LogInformation(
+                    "Fake provider sent signed succeeded webhook for payment {PaymentId} on attempt {WebhookAttempt}",
+                    paymentId,
+                    attempt);
+                return;
+            }
+
+            if (!ShouldRetry(response.StatusCode))
+            {
+                logger.LogWarning(
+                    "Fake provider webhook for payment {PaymentId} returned non-retryable status {StatusCode} on attempt {WebhookAttempt}",
+                    paymentId,
+                    (int)response.StatusCode,
+                    attempt);
+                return;
+            }
+
+            logger.LogWarning(
+                "Fake provider webhook for payment {PaymentId} returned retryable status {StatusCode} on attempt {WebhookAttempt}",
+                paymentId,
+                (int)response.StatusCode,
+                attempt);
+        }
+        catch (Exception ex) when (IsRetryableWebhookException(ex))
+        {
+            logger.LogWarning(
+                ex,
+                "Fake provider webhook for payment {PaymentId} failed on attempt {WebhookAttempt}",
+                paymentId,
+                attempt);
+        }
+
+        if (attempt < maxAttempts)
+        {
+            // 简单递增退避：第 1 次失败等 1s，第 2 次失败等 2s，便于本地观察。
+            await Task.Delay(TimeSpan.FromSeconds(baseDelaySeconds * attempt), CancellationToken.None);
+        }
+    }
+
+    logger.LogError(
+        "Fake provider webhook delivery exhausted {WebhookMaxAttempts} attempts for payment {PaymentId}",
+        maxAttempts,
+        paymentId);
+}
+
+static HttpRequestMessage CreateSignedWebhookRequest(
+    string webhookUrl,
+    string correlationId,
+    string webhookSecret,
+    string rawBody)
+{
+    var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+    var signature = FakeProviderWebhookSignature.Create(
+        webhookSecret,
+        timestamp,
+        rawBody);
+
+    var httpRequest = new HttpRequestMessage(HttpMethod.Post, webhookUrl)
+    {
+        Content = new StringContent(rawBody, Encoding.UTF8, "application/json")
+    };
+    httpRequest.Headers.TryAddWithoutValidation("X-Correlation-Id", correlationId);
+    httpRequest.Headers.TryAddWithoutValidation(
+        FakeProviderWebhookSignature.TimestampHeaderName,
+        timestamp.ToString());
+    httpRequest.Headers.TryAddWithoutValidation(
+        FakeProviderWebhookSignature.SignatureHeaderName,
+        signature);
+
+    return httpRequest;
+}
+
+static bool ShouldRetry(HttpStatusCode statusCode)
+{
+    return (int)statusCode >= StatusCodes.Status500InternalServerError
+        || statusCode == HttpStatusCode.RequestTimeout
+        || statusCode == HttpStatusCode.TooManyRequests;
+}
+
+static bool IsRetryableWebhookException(Exception exception)
+{
+    return exception is HttpRequestException or TaskCanceledException or TimeoutException;
+}

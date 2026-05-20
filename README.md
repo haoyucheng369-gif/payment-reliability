@@ -377,7 +377,17 @@ scripts                          k6 load and reliability tests
 - DLQ fallback
 - Duplicate webhook safety
 - HMAC webhook signature validation
+- Provider webhook delivery retry
 - Provider timeout and HTTP 500 simulation
+
+Provider webhook retry behavior:
+
+```text
+Provider sends signed webhook
+-> 2xx: stop
+-> timeout, network error, 5xx, 408, or 429: retry up to 3 attempts
+-> 4xx: stop because the request is invalid or unauthorized
+```
 - Operational indexes on `(Status, CreatedAt)` for order/payment scans
 
 ## Roadmap

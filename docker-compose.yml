@@ -132,6 +132,8 @@ services:
       ProviderMock__Mode: "${PROVIDER_MOCK_MODE:-Success}"
       ProviderMock__WebhookSecret: "local-dev-provider-webhook-secret"
       ProviderMock__WebhookDelaySeconds: "3"
+      ProviderMock__WebhookMaxRetryCount: "3"
+      ProviderMock__WebhookRetryBaseDelaySeconds: "1"
       ProviderMock__TimeoutDelaySeconds: "10"
     ports:
       - "5290:8080"
