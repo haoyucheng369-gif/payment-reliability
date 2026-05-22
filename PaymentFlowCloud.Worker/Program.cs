@@ -1,6 +1,9 @@
 using PaymentFlowCloud.Application;
+using PaymentFlowCloud.Application.Observability;
 using PaymentFlowCloud.Infrastructure;
 using PaymentFlowCloud.Worker;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 using Serilog;
 using Serilog.Events;
 
@@ -21,6 +24,24 @@ builder.Services.AddSerilog((services, loggerConfiguration) =>
 // Worker 和 API 复用同一套 Application / Infrastructure 注册，避免运行时行为分叉。
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services
+    .AddOpenTelemetry()
+    .ConfigureResource(resource =>
+    {
+        resource.AddService("PaymentFlowCloud.Worker");
+    })
+    .WithTracing(tracing =>
+    {
+        tracing
+            .AddSource(PaymentFlowCloudTelemetry.ActivitySourceName)
+            .AddHttpClientInstrumentation()
+            .AddOtlpExporter(options =>
+            {
+                options.Endpoint = new Uri(
+                    builder.Configuration["OpenTelemetry:OtlpEndpoint"]
+                    ?? "http://localhost:4317");
+            });
+    });
 builder.Services.AddPaymentWorker();
 
 var host = builder.Build();

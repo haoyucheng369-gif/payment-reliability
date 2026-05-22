@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace PaymentFlowCloud.Api.Observability;
 
 public class CorrelationIdMiddleware(
@@ -12,6 +14,7 @@ public class CorrelationIdMiddleware(
     {
         var correlationId = ResolveCorrelationId(context);
         context.Items[ItemName] = correlationId;
+        Activity.Current?.SetTag("correlation.id", correlationId);
 
         context.Response.OnStarting(() =>
         {

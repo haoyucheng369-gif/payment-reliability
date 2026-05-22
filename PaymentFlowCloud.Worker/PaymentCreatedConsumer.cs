@@ -1,6 +1,9 @@
+using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 using PaymentFlowCloud.Application.Abstractions;
 using PaymentFlowCloud.Application.Contracts;
+using PaymentFlowCloud.Application.Observability;
 using PaymentFlowCloud.Application.Payments;
 using PaymentFlowCloud.Infrastructure.Messaging;
 using RabbitMQ.Client;
@@ -34,7 +37,7 @@ public class PaymentCreatedConsumer(
         var consumer = new AsyncEventingBasicConsumer(channel);
         consumer.ReceivedAsync += async (_, eventArgs) =>
         {
-            // RabbitMQ.Client 的 Body 内存只在回调期间可靠；后台并发处理前必须先复制快照。
+            // RabbitMQ.Client 的 Body 只在回调期间可靠；并发处理前先复制快照。
             var delivery = MessageDelivery.From(eventArgs);
 
             // 先取得并发槽位，再把消息处理放到后台任务，允许 RabbitMQ 继续投递到 prefetch 上限。
@@ -116,6 +119,8 @@ public class PaymentCreatedConsumer(
             return;
         }
 
+        using var activity = StartConsumerActivity(delivery, message);
+
         // Worker 没有 HTTP pipeline，所以用消息体里的 CorrelationId 手动创建日志 scope。
         using var scope = logger.BeginScope(new Dictionary<string, object>
         {
@@ -172,7 +177,7 @@ public class PaymentCreatedConsumer(
         }
         catch (Exception ex)
         {
-            // 处理失败时不再无限 requeue，而是按 retry count 重新发布或进入 DLQ。
+            // 处理失败时不无限 requeue，而是按 retry count 重新发布或进入 DLQ。
             logger.LogError(ex, "Failed to process payment-created message");
             await RetryOrMoveToDeadLetterQueueAsync(
                 channel,
@@ -298,6 +303,60 @@ public class PaymentCreatedConsumer(
             cancellationToken: cancellationToken);
     }
 
+    private Activity? StartConsumerActivity(
+        MessageDelivery delivery,
+        PaymentCreatedMessage message)
+    {
+        var parentContext = ExtractParentContext(delivery);
+        var activity = parentContext is null
+            ? PaymentFlowCloudTelemetry.ActivitySource.StartActivity(
+                "rabbitmq consume payment-created",
+                ActivityKind.Consumer)
+            : PaymentFlowCloudTelemetry.ActivitySource.StartActivity(
+                "rabbitmq consume payment-created",
+                ActivityKind.Consumer,
+                parentContext.Value);
+
+        activity?.SetTag("messaging.system", "rabbitmq");
+        activity?.SetTag("messaging.destination.name", connectionFactory.QueueName);
+        activity?.SetTag("messaging.operation.name", "process");
+        activity?.SetTag("payment.id", message.PaymentId);
+        activity?.SetTag("order.id", message.OrderId);
+        activity?.SetTag("correlation.id", message.CorrelationId);
+
+        return activity;
+    }
+
+    private static ActivityContext? ExtractParentContext(MessageDelivery delivery)
+    {
+        var traceParent = GetHeaderAsString(delivery, PaymentFlowCloudTelemetry.TraceParentHeaderName);
+        if (string.IsNullOrWhiteSpace(traceParent))
+        {
+            return null;
+        }
+
+        var traceState = GetHeaderAsString(delivery, PaymentFlowCloudTelemetry.TraceStateHeaderName);
+        return ActivityContext.TryParse(traceParent, traceState, isRemote: true, out var context)
+            ? context
+            : null;
+    }
+
+    private static string? GetHeaderAsString(MessageDelivery delivery, string headerName)
+    {
+        if (delivery.Headers is null
+            || !delivery.Headers.TryGetValue(headerName, out var value))
+        {
+            return null;
+        }
+
+        return value switch
+        {
+            byte[] bytes => Encoding.UTF8.GetString(bytes),
+            string text => text,
+            _ => value?.ToString()
+        };
+    }
+
     private static Dictionary<string, object?> CopyHeaders(MessageDelivery delivery)
     {
         return delivery.Headers is null
@@ -317,7 +376,7 @@ public class PaymentCreatedConsumer(
 
         return value switch
         {
-            byte[] bytes when int.TryParse(System.Text.Encoding.UTF8.GetString(bytes), out var parsed) => parsed,
+            byte[] bytes when int.TryParse(Encoding.UTF8.GetString(bytes), out var parsed) => parsed,
             int retryCount => retryCount,
             long retryCount => (int)retryCount,
             short retryCount => retryCount,

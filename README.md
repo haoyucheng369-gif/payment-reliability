@@ -15,6 +15,7 @@ The system models an e-commerce payment flow where an order is created, a paymen
 - Retry webhook delivery from the provider side when the API is temporarily unavailable
 - Support local multi-worker scaling with RabbitMQ prefetch and concurrency controls
 - Expose structured logs, correlation IDs, API metrics, latency, request rate, and 5xx ratio
+- Trace the distributed payment flow across API, RabbitMQ, Worker, Provider, and webhook
 - Provide reproducible k6 scenarios for idempotency, throughput, webhook duplication, and provider failure
 
 ## System Architecture
@@ -35,6 +36,10 @@ flowchart LR
     Api --> Metrics[/Prometheus Metrics/]
     Prometheus[Prometheus] --> Metrics
     Grafana[Grafana] --> Prometheus
+    Api --> Tempo[Tempo Traces]
+    Worker --> Tempo
+    Provider --> Tempo
+    Grafana --> Tempo
 ```
 
 ## Payment Flow
@@ -147,6 +152,7 @@ Docker Compose starts:
 | `seq` | Structured log viewer |
 | `prometheus` | Metrics scraper |
 | `grafana` | Metrics dashboard |
+| `tempo` | Distributed trace storage |
 | `k6-*` | On-demand load and reliability tests |
 
 ## Run Locally
@@ -173,6 +179,7 @@ Useful URLs:
 | Seq | http://localhost:5341 |
 | Prometheus | http://localhost:9090 |
 | Grafana | http://localhost:3000 |
+| Tempo | http://localhost:3200 |
 | ProviderMock | http://localhost:5290/provider/payments |
 
 Default local credentials:
@@ -348,6 +355,40 @@ Run k6 while Grafana is open to see metrics move:
 docker compose run --rm --no-deps -e VUS=100 -e ITERATIONS=3000 k6-api-throughput
 ```
 
+### Traces
+
+OpenTelemetry sends distributed traces to Tempo:
+
+```text
+API / Worker / ProviderMock -> OTLP -> Tempo -> Grafana
+```
+
+Tempo is provisioned as a Grafana datasource:
+
+```text
+http://localhost:3000
+```
+
+Use Grafana `Explore`, select the `Tempo` datasource, then search by trace attributes such as:
+
+```text
+correlation.id = "CORR-123"
+payment.id = "..."
+order.id = "..."
+```
+
+The main payment trace shows:
+
+```text
+POST /payments
+-> rabbitmq publish payment-created
+-> rabbitmq consume payment-created
+-> Worker HTTP call to ProviderMock
+-> Provider webhook delivery delay
+-> API webhook callback
+-> payment/order completion
+```
+
 ### Logs
 
 The local stack sends structured logs to Seq:
@@ -400,7 +441,7 @@ PaymentFlowCloud.Infrastructure  EF Core, repositories, RabbitMQ, provider clien
 PaymentFlowCloud.Worker          RabbitMQ consumer and background processing
 PaymentFlowCloud.ProviderMock    Fake external payment provider and webhook sender
 PaymentFlowCloud.Web             React checkout simulation UI
-docker                          Prometheus and Grafana provisioning
+docker                          Prometheus, Grafana, and Tempo provisioning
 scripts                         k6 load and reliability tests
 ```
 
@@ -419,12 +460,12 @@ scripts                         k6 load and reliability tests
 - Operational indexes on `(Status, CreatedAt)` for order/payment scans
 - Structured logs with `CorrelationId`
 - API metrics dashboard
+- Distributed tracing with OpenTelemetry and Tempo
 
 ## Roadmap
 
 Near-term priorities:
 
-- OpenTelemetry tracing across API, Worker, Provider, and webhook
 - Azure Application Insights integration
 - Azure migration path with Container Apps and queue-based processing
 - Optional operational dashboards for queue backlog and payment states

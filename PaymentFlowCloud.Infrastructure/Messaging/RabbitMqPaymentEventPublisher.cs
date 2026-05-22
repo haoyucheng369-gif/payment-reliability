@@ -1,8 +1,10 @@
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using PaymentFlowCloud.Application.Abstractions;
 using PaymentFlowCloud.Application.Contracts;
+using PaymentFlowCloud.Application.Observability;
 using PaymentFlowCloud.Domain.Entities;
 using RabbitMQ.Client;
 
@@ -14,7 +16,17 @@ public class RabbitMqPaymentEventPublisher(
 {
     public async Task PublishPaymentCreatedAsync(Payment payment, CancellationToken cancellationToken = default)
     {
-        // 当前每次发布临时创建连接，足够支撑本地 MVP；后续可优化为长连接复用。
+        using var activity = PaymentFlowCloudTelemetry.ActivitySource.StartActivity(
+            "rabbitmq publish payment-created",
+            ActivityKind.Producer);
+        activity?.SetTag("messaging.system", "rabbitmq");
+        activity?.SetTag("messaging.destination.name", connectionFactory.QueueName);
+        activity?.SetTag("messaging.operation.name", "publish");
+        activity?.SetTag("payment.id", payment.Id);
+        activity?.SetTag("order.id", payment.OrderId);
+        activity?.SetTag("correlation.id", payment.CorrelationId);
+
+        // 当前每次发布临时创建连接，足够支撑本地版本；后续可优化为长连接复用。
         await using var connection = await connectionFactory.CreateConnectionAsync(cancellationToken);
         await using var channel = await connection.CreateChannelAsync(cancellationToken: cancellationToken);
 
@@ -32,15 +44,19 @@ public class RabbitMqPaymentEventPublisher(
         };
 
         var body = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(message));
+        var headers = new Dictionary<string, object?>();
+        AddTraceContextHeaders(headers);
+
         var properties = new BasicProperties
         {
             ContentType = "application/json",
             CorrelationId = payment.CorrelationId,
             MessageId = payment.Id.ToString(),
-            Persistent = true
+            Persistent = true,
+            Headers = headers
         };
 
-        // 使用默认 exchange，routingKey 直接指向队列名。
+        // 使用默认 exchange，routing key 直接指向队列名。
         await channel.BasicPublishAsync(
             exchange: string.Empty,
             routingKey: connectionFactory.QueueName,
@@ -53,5 +69,20 @@ public class RabbitMqPaymentEventPublisher(
             "Published payment-created message for payment {PaymentId} to queue {QueueName}",
             payment.Id,
             connectionFactory.QueueName);
+    }
+
+    private static void AddTraceContextHeaders(Dictionary<string, object?> headers)
+    {
+        var currentActivity = Activity.Current;
+        if (currentActivity?.Id is not null)
+        {
+            headers[PaymentFlowCloudTelemetry.TraceParentHeaderName] = Encoding.UTF8.GetBytes(currentActivity.Id);
+        }
+
+        if (!string.IsNullOrWhiteSpace(currentActivity?.TraceStateString))
+        {
+            headers[PaymentFlowCloudTelemetry.TraceStateHeaderName] =
+                Encoding.UTF8.GetBytes(currentActivity.TraceStateString);
+        }
     }
 }
