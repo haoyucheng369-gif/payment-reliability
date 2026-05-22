@@ -46,6 +46,17 @@ services:
       api:
         condition: service_started
 
+  tempo:
+    image: grafana/tempo
+    container_name: paymentflowcloud-tempo
+    command: ["-config.file=/etc/tempo/tempo.yml"]
+    volumes:
+      - ./docker/tempo/tempo.yml:/etc/tempo/tempo.yml:ro
+    ports:
+      - "3200:3200"
+      - "4317:4317"
+      - "4318:4318"
+
   grafana:
     image: grafana/grafana
     container_name: paymentflowcloud-grafana
@@ -60,6 +71,8 @@ services:
       - "3000:3000"
     depends_on:
       prometheus:
+        condition: service_started
+      tempo:
         condition: service_started
 
   api:
@@ -86,6 +99,7 @@ services:
       RabbitMQ__PrefetchCount: "10"
       RabbitMQ__MaxConcurrentMessages: "5"
       Seq__ServerUrl: "http://seq:80"
+      OpenTelemetry__OtlpEndpoint: "http://tempo:4317"
       FakeProviderWebhook__Secret: "local-dev-provider-webhook-secret"
       FakeProviderWebhook__TimestampToleranceSeconds: "300"
     ports:
@@ -117,6 +131,7 @@ services:
       RabbitMQ__PrefetchCount: "10"
       RabbitMQ__MaxConcurrentMessages: "5"
       Seq__ServerUrl: "http://seq:80"
+      OpenTelemetry__OtlpEndpoint: "http://tempo:4317"
       FakeProvider__BaseUrl: "http://provider-mock:8080"
       FakeProvider__WebhookUrl: "http://api:8080/webhooks/fake-provider/payment-succeeded"
       FakeProvider__TimeoutSeconds: "5"
@@ -129,6 +144,7 @@ services:
     environment:
       ASPNETCORE_URLS: "http://+:8080"
       Seq__ServerUrl: "http://seq:80"
+      OpenTelemetry__OtlpEndpoint: "http://tempo:4317"
       ProviderMock__Mode: "${PROVIDER_MOCK_MODE:-Success}"
       ProviderMock__WebhookSecret: "local-dev-provider-webhook-secret"
       ProviderMock__WebhookDelaySeconds: "3"

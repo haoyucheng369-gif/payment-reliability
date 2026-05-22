@@ -1,10 +1,14 @@
 using System.Net;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 using PaymentFlowCloud.Application.Contracts;
+using PaymentFlowCloud.Application.Observability;
 using PaymentFlowCloud.Application.Security;
 using PaymentFlowCloud.ProviderMock;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 using Serilog;
 using Serilog.Context;
 using Serilog.Events;
@@ -26,6 +30,25 @@ builder.Host.UseSerilog((context, loggerConfiguration) =>
 builder.Services.AddHttpClient();
 builder.Services.Configure<ProviderMockOptions>(
     builder.Configuration.GetSection("ProviderMock"));
+builder.Services
+    .AddOpenTelemetry()
+    .ConfigureResource(resource =>
+    {
+        resource.AddService("PaymentFlowCloud.ProviderMock");
+    })
+    .WithTracing(tracing =>
+    {
+        tracing
+            .AddSource(PaymentFlowCloudTelemetry.ActivitySourceName)
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation()
+            .AddOtlpExporter(options =>
+            {
+                options.Endpoint = new Uri(
+                    builder.Configuration["OpenTelemetry:OtlpEndpoint"]
+                    ?? "http://localhost:4317");
+            });
+    });
 
 var app = builder.Build();
 
@@ -80,6 +103,11 @@ app.MapPost("/provider/payments", async (
     {
         using var callbackCorrelationScope = LogContext.PushProperty("CorrelationId", request.CorrelationId);
         using var callbackPaymentScope = LogContext.PushProperty("PaymentId", request.PaymentId);
+        using var webhookActivity = PaymentFlowCloudTelemetry.ActivitySource.StartActivity(
+            "provider webhook delivery",
+            ActivityKind.Internal);
+        webhookActivity?.SetTag("payment.id", request.PaymentId);
+        webhookActivity?.SetTag("correlation.id", request.CorrelationId);
 
         try
         {

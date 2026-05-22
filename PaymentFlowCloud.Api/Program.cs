@@ -5,8 +5,11 @@ using PaymentFlowCloud.Api.HealthChecks;
 using PaymentFlowCloud.Api.Observability;
 using PaymentFlowCloud.Api.Security;
 using PaymentFlowCloud.Application;
+using PaymentFlowCloud.Application.Observability;
 using PaymentFlowCloud.Infrastructure;
 using PaymentFlowCloud.Infrastructure.Persistence;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 using Prometheus;
 using Serilog;
 using Serilog.Events;
@@ -42,6 +45,25 @@ builder.Services
 // 注册应用层用例和基础设施实现，Program.cs 只保留组合根职责。
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services
+    .AddOpenTelemetry()
+    .ConfigureResource(resource =>
+    {
+        resource.AddService("PaymentFlowCloud.Api");
+    })
+    .WithTracing(tracing =>
+    {
+        tracing
+            .AddSource(PaymentFlowCloudTelemetry.ActivitySourceName)
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation()
+            .AddOtlpExporter(options =>
+            {
+                options.Endpoint = new Uri(
+                    builder.Configuration["OpenTelemetry:OtlpEndpoint"]
+                    ?? "http://localhost:4317");
+            });
+    });
 builder.Services
     .AddHealthChecks()
     .AddCheck<SqlServerHealthCheck>("sqlserver")
