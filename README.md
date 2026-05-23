@@ -466,6 +466,7 @@ scripts                         k6 load and reliability tests
 
 Near-term priorities:
 
+- Azure target architecture: [docs/azure-architecture.md](docs/azure-architecture.md)
 - Azure Application Insights integration
 - Azure migration path with Container Apps and queue-based processing
 - Optional operational dashboards for queue backlog and payment states
