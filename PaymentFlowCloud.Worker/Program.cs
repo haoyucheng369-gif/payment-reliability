@@ -2,6 +2,7 @@ using PaymentFlowCloud.Application;
 using PaymentFlowCloud.Application.Observability;
 using PaymentFlowCloud.Infrastructure;
 using PaymentFlowCloud.Worker;
+using Azure.Monitor.OpenTelemetry.Exporter;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using Serilog;
@@ -41,6 +42,19 @@ builder.Services
                     builder.Configuration["OpenTelemetry:OtlpEndpoint"]
                     ?? "http://localhost:4317");
             });
+
+        var applicationInsightsConnectionString =
+            builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]
+            ?? builder.Configuration["ApplicationInsights:ConnectionString"];
+
+        if (!string.IsNullOrWhiteSpace(applicationInsightsConnectionString))
+        {
+            // 配置了 Application Insights 连接字符串时，同一份 trace 会额外发送到 Azure Monitor。
+            tracing.AddAzureMonitorTraceExporter(options =>
+            {
+                options.ConnectionString = applicationInsightsConnectionString;
+            });
+        }
     });
 builder.Services.AddPaymentWorker();
 

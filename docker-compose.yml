@@ -100,6 +100,7 @@ services:
       RabbitMQ__MaxConcurrentMessages: "5"
       Seq__ServerUrl: "http://seq:80"
       OpenTelemetry__OtlpEndpoint: "http://tempo:4317"
+      APPLICATIONINSIGHTS_CONNECTION_STRING: "${APPLICATIONINSIGHTS_CONNECTION_STRING:-}"
       FakeProviderWebhook__Secret: "local-dev-provider-webhook-secret"
       FakeProviderWebhook__TimestampToleranceSeconds: "300"
     ports:
@@ -132,6 +133,7 @@ services:
       RabbitMQ__MaxConcurrentMessages: "5"
       Seq__ServerUrl: "http://seq:80"
       OpenTelemetry__OtlpEndpoint: "http://tempo:4317"
+      APPLICATIONINSIGHTS_CONNECTION_STRING: "${APPLICATIONINSIGHTS_CONNECTION_STRING:-}"
       FakeProvider__BaseUrl: "http://provider-mock:8080"
       FakeProvider__WebhookUrl: "http://api:8080/webhooks/fake-provider/payment-succeeded"
       FakeProvider__TimeoutSeconds: "5"
@@ -145,6 +147,7 @@ services:
       ASPNETCORE_URLS: "http://+:8080"
       Seq__ServerUrl: "http://seq:80"
       OpenTelemetry__OtlpEndpoint: "http://tempo:4317"
+      APPLICATIONINSIGHTS_CONNECTION_STRING: "${APPLICATIONINSIGHTS_CONNECTION_STRING:-}"
       ProviderMock__Mode: "${PROVIDER_MOCK_MODE:-Success}"
       ProviderMock__WebhookSecret: "local-dev-provider-webhook-secret"
       ProviderMock__WebhookDelaySeconds: "3"

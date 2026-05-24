@@ -363,6 +363,13 @@ OpenTelemetry sends distributed traces to Tempo:
 API / Worker / ProviderMock -> OTLP -> Tempo -> Grafana
 ```
 
+When `APPLICATIONINSIGHTS_CONNECTION_STRING` is configured, the same trace spans are also exported to Azure Monitor / Application Insights:
+
+```powershell
+$env:APPLICATIONINSIGHTS_CONNECTION_STRING="<your-application-insights-connection-string>"
+docker compose up -d --build api worker provider-mock
+```
+
 Tempo is provisioned as a Grafana datasource:
 
 ```text
@@ -461,13 +468,13 @@ scripts                         k6 load and reliability tests
 - Structured logs with `CorrelationId`
 - API metrics dashboard
 - Distributed tracing with OpenTelemetry and Tempo
+- Optional Azure Monitor / Application Insights trace export
 
 ## Roadmap
 
 Near-term priorities:
 
 - Azure target architecture: [docs/azure-architecture.md](docs/azure-architecture.md)
-- Azure Application Insights integration
 - Azure migration path with Container Apps and queue-based processing
 - Optional operational dashboards for queue backlog and payment states
 

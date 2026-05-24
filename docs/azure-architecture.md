@@ -201,7 +201,7 @@ Add APIM after the API and Service Bus flow works in Azure
 | `CorrelationId` log scope | Application Insights custom property |
 | OpenTelemetry trace spans | Application Insights dependencies and request traces |
 
-The current OpenTelemetry setup should be preserved. Locally it exports to Tempo; in Azure it should export to Azure Monitor / Application Insights.
+The current OpenTelemetry setup is preserved. Locally it exports to Tempo; when `APPLICATIONINSIGHTS_CONNECTION_STRING` is configured, the same trace spans are also exported to Azure Monitor / Application Insights.
 
 ## Migration Phases
 
@@ -214,8 +214,8 @@ The current OpenTelemetry setup should be preserved. Locally it exports to Tempo
 
 ### Phase 2: Application Insights
 
-- Add Azure Monitor OpenTelemetry exporter.
-- Configure Application Insights connection string through environment variables.
+- Add Azure Monitor OpenTelemetry exporter. ✅
+- Configure Application Insights connection string through environment variables. ✅
 - Keep local Tempo exporter for Docker Compose.
 - Verify traces for `POST /payments`, Worker processing, ProviderMock call, and webhook callback.
 
