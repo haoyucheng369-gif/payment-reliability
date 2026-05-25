@@ -1,20 +1,38 @@
 # PaymentFlowCloud
 
-PaymentFlowCloud is a production-style payment processing reference implementation for reliable checkout flows. It focuses on the failure modes that matter in payment systems: duplicate payment requests, asynchronous provider processing, webhook confirmation, transient failures, dead-letter handling, observability, and cloud migration readiness.
+PaymentFlowCloud is a production-style payment processing reference implementation for reliable checkout flows.
 
-The system models an e-commerce flow where an order is created, a payment is created idempotently, provider processing runs asynchronously through a message broker and Worker, the provider confirms the final result through a signed webhook, and local order/payment state is updated consistently.
+It models the reliability boundary around payment creation and confirmation: concurrent payment requests, asynchronous provider processing, signed webhooks, transient failures, dead-letter handling, multi-worker processing, and end-to-end observability.
+
+The flow is intentionally close to a real e-commerce payment system:
+
+```text
+Create order -> create payment idempotently -> publish message -> Worker calls provider
+-> provider returns Accepted -> provider sends signed webhook -> local payment/order complete
+```
 
 ## Core Problems Solved
 
-- Prevent duplicate payments for the same order under concurrent requests
-- Keep the API responsive by moving provider communication to RabbitMQ and a Worker
-- Track payment progress through explicit order and payment status transitions
-- Handle provider HTTP 500 and timeout failures with retry and DLQ fallback
-- Validate provider webhooks with HMAC signatures and timestamp tolerance
-- Keep webhook processing idempotent when duplicate callbacks arrive
-- Support local multi-worker scaling with RabbitMQ prefetch and concurrency controls
-- Expose structured logs, correlation IDs, API metrics, request latency, error ratio, and distributed traces
-- Provide reproducible k6 scenarios for idempotency, throughput, webhook duplication, and provider failures
+- **Payment idempotency:** one order can create only one payment, even under concurrent requests.
+- **Asynchronous processing:** provider communication runs through RabbitMQ and a Worker instead of blocking the API.
+- **Reliable failure handling:** provider HTTP 500 and timeout failures go through retry and DLQ fallback.
+- **Webhook safety:** provider callbacks are signed with HMAC, timestamp-checked, and handled idempotently.
+- **Operational visibility:** logs, correlation IDs, metrics, latency, error ratio, and distributed traces are available locally.
+- **Cloud readiness:** the local architecture maps directly to Azure SQL, Azure Service Bus, Container Apps, and Application Insights.
+
+## Tech Stack
+
+| Area | Technology |
+| --- | --- |
+| API | ASP.NET Core Web API, Swagger, ProblemDetails, Health Checks |
+| Application | Clean Architecture-style use cases and service contracts |
+| Data | EF Core, SQL Server, migrations, operational indexes |
+| Messaging | RabbitMQ, competing consumers, prefetch, retry, DLQ |
+| Worker | .NET Worker Service, background consumer, provider client |
+| Frontend | Vite React checkout simulation |
+| Observability | Serilog, Seq, Prometheus, Grafana, Tempo, OpenTelemetry |
+| Load testing | k6 |
+| Cloud path | Azure SQL, Azure Service Bus, Container Apps, Application Insights, Azure Monitor |
 
 ## Architecture
 
@@ -40,7 +58,7 @@ flowchart LR
     Grafana --> Tempo
 ```
 
-## Payment Flow
+## Main Payment Flow
 
 ```mermaid
 sequenceDiagram
@@ -72,7 +90,7 @@ sequenceDiagram
     API-->>Provider: 200 OK
 ```
 
-## Status Model
+## State Model
 
 ```mermaid
 stateDiagram-v2
@@ -95,7 +113,7 @@ Start the full local stack:
 docker compose up -d --build
 ```
 
-Open the checkout UI:
+Open the checkout UI and complete the default flow:
 
 ```text
 http://localhost:5173
@@ -108,7 +126,7 @@ Order = Paid
 Payment = Succeeded
 ```
 
-Useful local URLs:
+Useful local endpoints:
 
 | Tool | URL |
 | --- | --- |
@@ -135,10 +153,12 @@ dotnet ef database update --project PaymentFlowCloud.Infrastructure --startup-pr
 
 ## Documentation
 
-- [Local development and test scenarios](docs/local-development.md)
-- [Reliability design](docs/reliability.md)
-- [Observability](docs/observability.md)
-- [Azure target architecture](docs/azure-architecture.md)
+| Document | Contents |
+| --- | --- |
+| [Local development and test scenarios](docs/local-development.md) | Docker Compose, URLs, k6 scenarios, Worker scaling |
+| [Reliability design](docs/reliability.md) | Idempotency, retry, DLQ, webhook security, state transitions |
+| [Observability](docs/observability.md) | Metrics, traces, logs, CorrelationId, Azure mapping |
+| [Azure target architecture](docs/azure-architecture.md) | Azure service mapping and migration phases |
 
 ## Project Structure
 
@@ -156,29 +176,23 @@ scripts                         k6 load and reliability tests
 
 ## Current Capabilities
 
-- Database unique constraint for payment idempotency
-- RabbitMQ queue buffering
-- Worker prefetch and local concurrency control
-- Multi-worker scaling
-- Fixed-count Worker retry
-- DLQ fallback
-- Duplicate webhook safety
-- HMAC webhook signature validation
-- Provider webhook delivery retry
-- Provider timeout and HTTP 500 simulation
-- Operational indexes on `(Status, CreatedAt)` for order/payment scans
-- Structured logs with `CorrelationId`
-- API metrics dashboard
-- Distributed tracing with OpenTelemetry and Tempo
-- Optional Azure Monitor / Application Insights trace export
+| Category | Capabilities |
+| --- | --- |
+| Idempotency | Unique payment per `OrderId`, duplicate request returns existing payment |
+| Messaging | RabbitMQ buffering, Worker prefetch, local concurrency control, multi-worker scaling |
+| Failure handling | Fixed-count Worker retry, DLQ fallback, provider timeout and HTTP 500 simulation |
+| Webhooks | HMAC signature validation, timestamp tolerance, duplicate webhook safety, provider-side webhook retry |
+| Data operations | EF Core migrations, operational indexes on `(Status, CreatedAt)` |
+| Observability | Structured logs with `CorrelationId`, API metrics dashboard, OpenTelemetry traces with Tempo |
+| Azure readiness | Optional Azure Monitor / Application Insights trace export |
 
 ## Roadmap
 
 Near-term priorities:
 
-- Azure migration path with Container Apps and queue-based processing
 - Azure SQL deployment path
 - Azure Service Bus publisher/consumer implementation
+- Container Apps deployment for API, Worker, and ProviderMock
 - Optional operational dashboards for queue backlog and payment states
 
 Deferred intentionally:
