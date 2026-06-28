@@ -1,0 +1,8 @@
+<Solution>
+  <Project Path="ReliablePaymentProcessing.Api/ReliablePaymentProcessing.Api.csproj" />
+  <Project Path="ReliablePaymentProcessing.Application/ReliablePaymentProcessing.Application.csproj" />
+  <Project Path="ReliablePaymentProcessing.Domain/ReliablePaymentProcessing.Domain.csproj" />
+  <Project Path="ReliablePaymentProcessing.Infrastructure/ReliablePaymentProcessing.Infrastructure.csproj" />
+  <Project Path="ReliablePaymentProcessing.ProviderMock/ReliablePaymentProcessing.ProviderMock.csproj" />
+  <Project Path="ReliablePaymentProcessing.Worker/ReliablePaymentProcessing.Worker.csproj" />
+</Solution>

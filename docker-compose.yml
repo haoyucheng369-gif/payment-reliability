@@ -78,7 +78,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: PaymentFlowCloud.Api/Dockerfile
+      dockerfile: ReliablePaymentProcessing.Api/Dockerfile
     container_name: paymentflowcloud-api
     depends_on:
       sqlserver:
@@ -88,7 +88,7 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: "Development"
       ASPNETCORE_URLS: "http://+:8080"
-      ConnectionStrings__SqlServer: "Server=sqlserver,1433;Database=PaymentFlowCloudDb;User Id=sa;Password=YourStrongPassword123!;TrustServerCertificate=True;"
+      ConnectionStrings__SqlServer: "Server=sqlserver,1433;Database=ReliablePaymentProcessingDb;User Id=sa;Password=YourStrongPassword123!;TrustServerCertificate=True;"
       RabbitMQ__HostName: "rabbitmq"
       RabbitMQ__Port: "5672"
       RabbitMQ__UserName: "guest"
@@ -109,7 +109,7 @@ services:
   worker:
     build:
       context: .
-      dockerfile: PaymentFlowCloud.Worker/Dockerfile
+      dockerfile: ReliablePaymentProcessing.Worker/Dockerfile
     depends_on:
       sqlserver:
         condition: service_healthy
@@ -121,7 +121,7 @@ services:
         condition: service_started
     environment:
       DOTNET_ENVIRONMENT: "Development"
-      ConnectionStrings__SqlServer: "Server=sqlserver,1433;Database=PaymentFlowCloudDb;User Id=sa;Password=YourStrongPassword123!;TrustServerCertificate=True;"
+      ConnectionStrings__SqlServer: "Server=sqlserver,1433;Database=ReliablePaymentProcessingDb;User Id=sa;Password=YourStrongPassword123!;TrustServerCertificate=True;"
       RabbitMQ__HostName: "rabbitmq"
       RabbitMQ__Port: "5672"
       RabbitMQ__UserName: "guest"
@@ -141,7 +141,7 @@ services:
   provider-mock:
     build:
       context: .
-      dockerfile: PaymentFlowCloud.ProviderMock/Dockerfile
+      dockerfile: ReliablePaymentProcessing.ProviderMock/Dockerfile
     container_name: paymentflowcloud-provider-mock
     environment:
       ASPNETCORE_URLS: "http://+:8080"
@@ -160,7 +160,7 @@ services:
   web:
     build:
       context: .
-      dockerfile: PaymentFlowCloud.Web/Dockerfile
+      dockerfile: ReliablePaymentProcessing.Web/Dockerfile
     container_name: paymentflowcloud-web
     depends_on:
       api:

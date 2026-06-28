@@ -1,6 +1,6 @@
 # Azure Target Architecture
 
-This document defines the planned Azure migration path for PaymentFlowCloud. The goal is to keep the current payment business flow intact while replacing the local infrastructure with managed Azure services.
+This document defines the planned Azure migration path for ReliablePaymentProcessing. The goal is to keep the current payment business flow intact while replacing the local infrastructure with managed Azure services.
 
 ## Target Goals
 
@@ -14,10 +14,10 @@ This document defines the planned Azure migration path for PaymentFlowCloud. The
 
 | Local Component | Azure Target | Reason |
 | --- | --- | --- |
-| `PaymentFlowCloud.Api` container | Azure Container Apps API | Fits the existing containerized ASP.NET Core API and supports managed ingress and scaling |
-| `PaymentFlowCloud.Worker` container | Azure Container Apps Worker | Keeps the current long-running Worker model and supports queue-based scaling |
-| `PaymentFlowCloud.ProviderMock` container | Azure Container Apps internal service | Keeps the fake provider available for cloud demos and end-to-end tests |
-| `PaymentFlowCloud.Web` container | Azure Static Web Apps or Container Apps | Static Web Apps is cleaner for frontend hosting; Container Apps is simpler if reusing the current nginx container |
+| `ReliablePaymentProcessing.Api` container | Azure Container Apps API | Fits the existing containerized ASP.NET Core API and supports managed ingress and scaling |
+| `ReliablePaymentProcessing.Worker` container | Azure Container Apps Worker | Keeps the current long-running Worker model and supports queue-based scaling |
+| `ReliablePaymentProcessing.ProviderMock` container | Azure Container Apps internal service | Keeps the fake provider available for cloud demos and end-to-end tests |
+| `ReliablePaymentProcessing.Web` container | Azure Static Web Apps or Container Apps | Static Web Apps is cleaner for frontend hosting; Container Apps is simpler if reusing the current nginx container |
 | SQL Server container | Azure SQL Database | Managed relational persistence for orders, payments, idempotency, and operational queries |
 | RabbitMQ | Azure Service Bus Queue | Managed business messaging with DLQ, message metadata, retries, and operational tooling |
 | RabbitMQ DLQ | Azure Service Bus built-in DLQ | Native dead-letter support per queue |
@@ -140,7 +140,7 @@ For the main payment-created flow, Service Bus is a better match.
 
 ### Primary Choice: Container Apps Worker
 
-The current `PaymentFlowCloud.Worker` is already a long-running .NET Worker service. Azure Container Apps can host it with minimal code changes.
+The current `ReliablePaymentProcessing.Worker` is already a long-running .NET Worker service. Azure Container Apps can host it with minimal code changes.
 
 Benefits:
 
@@ -214,9 +214,7 @@ The current OpenTelemetry setup is preserved. Locally it exports to Tempo; when 
 
 ### Phase 2: Application Insights
 
-- Add Azure Monitor OpenTelemetry exporter. âœ…
-- Configure Application Insights connection string through environment variables. âœ…
-- Keep local Tempo exporter for Docker Compose.
+- Add Azure Monitor OpenTelemetry exporter. âœ?- Configure Application Insights connection string through environment variables. âœ?- Keep local Tempo exporter for Docker Compose.
 - Verify traces for `POST /payments`, Worker processing, ProviderMock call, and webhook callback.
 
 ### Phase 3: Azure SQL

@@ -1,6 +1,6 @@
-# PaymentFlowCloud
+# ReliablePaymentProcessing
 
-PaymentFlowCloud is a production-style payment processing reference implementation for reliable checkout flows.
+ReliablePaymentProcessing is a production-style payment processing reference implementation for reliable checkout flows.
 
 It models the reliability boundary around payment creation and confirmation: concurrent payment requests, asynchronous provider processing, signed webhooks, transient failures, dead-letter handling, multi-worker processing, and end-to-end observability.
 
@@ -39,11 +39,11 @@ Create order -> create payment idempotently -> publish message -> Worker calls p
 ```mermaid
 flowchart LR
     User[User / Browser] --> Web[React Checkout UI]
-    Web --> Api[PaymentFlowCloud.Api]
+    Web --> Api[ReliablePaymentProcessing.Api]
     Api --> Sql[(SQL Server)]
     Api --> Rabbit[(RabbitMQ)]
-    Rabbit --> Worker[PaymentFlowCloud.Worker]
-    Worker --> Provider[PaymentFlowCloud.ProviderMock]
+    Rabbit --> Worker[ReliablePaymentProcessing.Worker]
+    Worker --> Provider[ReliablePaymentProcessing.ProviderMock]
     Provider --> ApiWebhook[API Webhook Endpoint]
     ApiWebhook --> Sql
     Api --> Seq[Seq Logs]
@@ -148,7 +148,7 @@ Default local credentials:
 Docker Compose normally applies EF Core migrations when the API starts in Development mode. Run migrations manually only when running the API outside Docker or when forcing a schema update:
 
 ```powershell
-dotnet ef database update --project PaymentFlowCloud.Infrastructure --startup-project PaymentFlowCloud.Api
+dotnet ef database update --project ReliablePaymentProcessing.Infrastructure --startup-project ReliablePaymentProcessing.Api
 ```
 
 ## Documentation
@@ -163,13 +163,13 @@ dotnet ef database update --project PaymentFlowCloud.Infrastructure --startup-pr
 ## Project Structure
 
 ```text
-PaymentFlowCloud.Api             HTTP API, controllers, middleware, Swagger, metrics
-PaymentFlowCloud.Application     Use cases, service interfaces, contracts
-PaymentFlowCloud.Domain          Entities, statuses, state transition rules
-PaymentFlowCloud.Infrastructure  EF Core, repositories, RabbitMQ, provider client
-PaymentFlowCloud.Worker          RabbitMQ consumer and background processing
-PaymentFlowCloud.ProviderMock    Fake external payment provider and webhook sender
-PaymentFlowCloud.Web             React checkout simulation UI
+ReliablePaymentProcessing.Api             HTTP API, controllers, middleware, Swagger, metrics
+ReliablePaymentProcessing.Application     Use cases, service interfaces, contracts
+ReliablePaymentProcessing.Domain          Entities, statuses, state transition rules
+ReliablePaymentProcessing.Infrastructure  EF Core, repositories, RabbitMQ, provider client
+ReliablePaymentProcessing.Worker          RabbitMQ consumer and background processing
+ReliablePaymentProcessing.ProviderMock    Fake external payment provider and webhook sender
+ReliablePaymentProcessing.Web             React checkout simulation UI
 docker                          Prometheus, Grafana, and Tempo provisioning
 scripts                         k6 load and reliability tests
 ```

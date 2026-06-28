@@ -31,7 +31,7 @@ docker compose up -d --build
 Docker Compose normally applies EF Core migrations when the API starts in Development mode. Run migrations manually only when running the API outside Docker or when forcing a schema update:
 
 ```powershell
-dotnet ef database update --project PaymentFlowCloud.Infrastructure --startup-project PaymentFlowCloud.Api
+dotnet ef database update --project ReliablePaymentProcessing.Infrastructure --startup-project ReliablePaymentProcessing.Api
 ```
 
 Useful URLs:
