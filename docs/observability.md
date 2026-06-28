@@ -1,6 +1,6 @@
 # Observability
 
-PaymentFlowCloud uses three complementary observability signals:
+ReliablePaymentProcessing uses three complementary observability signals:
 
 - Metrics for system-level trends
 - Traces for single payment request chains
@@ -20,7 +20,7 @@ Prometheus scrapes the API every 5 seconds:
 http://localhost:9090
 ```
 
-Grafana is preconfigured with a Prometheus datasource and a `PaymentFlowCloud API` dashboard:
+Grafana is preconfigured with a Prometheus datasource and a `ReliablePaymentProcessing API` dashboard:
 
 ```text
 http://localhost:3000

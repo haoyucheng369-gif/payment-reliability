@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "ReliablePaymentProcessing.ProviderMock": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:57410;http://localhost:57411"
+    }
+  }
+}

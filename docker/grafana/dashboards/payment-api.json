@@ -351,7 +351,7 @@
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "PaymentFlowCloud API",
+  "title": "ReliablePaymentProcessing API",
   "uid": "paymentflowcloud-api",
   "version": 1,
   "weekStart": ""
