@@ -1,64 +1,42 @@
-# ReliablePaymentProcessing
+# Payment Reliability
 
-ReliablePaymentProcessing is a production-style payment processing reference implementation for reliable checkout flows.
+Payment Reliability is a production-style payment workflow focused on reliable checkout, asynchronous provider processing, signed webhooks, retries, dead-letter handling, and operational visibility.
 
-It models the reliability boundary around payment creation and confirmation: concurrent payment requests, asynchronous provider processing, signed webhooks, transient failures, dead-letter handling, multi-worker processing, and end-to-end observability.
+The project models the reliability boundary around payment creation and confirmation: one order creates one payment, provider communication happens through a worker, webhooks are validated and idempotent, and failures are observable.
 
-The flow is intentionally close to a real e-commerce payment system:
+## Core Capabilities
 
-```text
-Create order -> create payment idempotently -> publish message -> Worker calls provider
--> provider returns Accepted -> provider sends signed webhook -> local payment/order complete
-```
-
-## Core Problems Solved
-
-- **Payment idempotency:** one order can create only one payment, even under concurrent requests.
-- **Asynchronous processing:** provider communication runs through RabbitMQ and a Worker instead of blocking the API.
-- **Reliable failure handling:** provider HTTP 500 and timeout failures go through retry and DLQ fallback.
-- **Webhook safety:** provider callbacks are signed with HMAC, timestamp-checked, and handled idempotently.
-- **Operational visibility:** logs, correlation IDs, metrics, latency, error ratio, and distributed traces are available locally.
-- **Cloud readiness:** the local architecture maps directly to Azure SQL, Azure Service Bus, Container Apps, and Application Insights.
-
-## Tech Stack
-
-| Area | Technology |
-| --- | --- |
-| API | ASP.NET Core Web API, Swagger, ProblemDetails, Health Checks |
-| Application | Clean Architecture-style use cases and service contracts |
-| Data | EF Core, SQL Server, migrations, operational indexes |
-| Messaging | RabbitMQ, competing consumers, prefetch, retry, DLQ |
-| Worker | .NET Worker Service, background consumer, provider client |
-| Frontend | Vite React checkout simulation |
-| Observability | Serilog, Seq, Prometheus, Grafana, Tempo, OpenTelemetry |
-| Load testing | k6 |
-| Cloud path | Azure SQL, Azure Service Bus, Container Apps, Application Insights, Azure Monitor |
+- Idempotent payment creation: duplicate requests for the same order return the existing payment.
+- RabbitMQ-based asynchronous processing with Worker consumers.
+- Signed provider webhooks with HMAC validation and timestamp checks.
+- Retry and DLQ fallback for provider HTTP 500 and timeout failures.
+- Structured logs, correlation IDs, Prometheus metrics, Grafana dashboards, and OpenTelemetry traces.
+- Azure-ready service mapping for Azure SQL, Service Bus, Container Apps, and Application Insights.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    User[User / Browser] --> Web[React Checkout UI]
-    Web --> Api[ReliablePaymentProcessing.Api]
-    Api --> Sql[(SQL Server)]
-    Api --> Rabbit[(RabbitMQ)]
-    Rabbit --> Worker[ReliablePaymentProcessing.Worker]
-    Worker --> Provider[ReliablePaymentProcessing.ProviderMock]
-    Provider --> ApiWebhook[API Webhook Endpoint]
-    ApiWebhook --> Sql
-    Api --> Seq[Seq Logs]
+    Web[React Checkout UI] --> API[Payment API]
+    API --> DB[(SQL Server)]
+    API --> MQ[(RabbitMQ)]
+
+    MQ --> Worker[Payment Worker]
+    Worker --> Provider[Provider Mock]
+    Provider -->|signed webhook| API
+
+    API --> Seq[Seq Logs]
     Worker --> Seq
     Provider --> Seq
-    Api --> Metrics[/Prometheus Metrics/]
-    Prometheus[Prometheus] --> Metrics
-    Grafana[Grafana] --> Prometheus
-    Api --> Tempo[Tempo Traces]
-    Worker --> Tempo
+
+    API --> Prom[Prometheus Metrics]
+    Worker --> Tempo[OpenTelemetry Traces]
     Provider --> Tempo
+    Grafana[Grafana] --> Prom
     Grafana --> Tempo
 ```
 
-## Main Payment Flow
+## Payment Flow
 
 ```mermaid
 sequenceDiagram
@@ -66,67 +44,62 @@ sequenceDiagram
     participant API as Payment API
     participant DB as SQL Server
     participant MQ as RabbitMQ
-    participant Worker as Worker Consumer
-    participant Provider as Fake Provider
+    participant Worker
+    participant Provider
 
-    Web->>API: POST /orders
+    Web->>API: Create order
     API->>DB: Insert Order(PendingPayment)
-    API-->>Web: Order
+    API-->>Web: Order id
 
-    Web->>API: POST /payments(orderId)
+    Web->>API: Create payment(orderId)
     API->>DB: Insert Payment(Pending)
     API->>MQ: Publish payment-created
-    API-->>Web: Payment
+    API-->>Web: Payment id
 
     Worker->>MQ: Consume payment-created
     Worker->>Provider: Create provider payment
     Provider-->>Worker: Accepted
     Worker->>DB: Payment -> Processing
 
-    Provider-->>Provider: Wait 3s
     Provider->>API: Signed webhook(payment succeeded)
     API->>DB: Payment -> Succeeded
     API->>DB: Order -> Paid
-    API-->>Provider: 200 OK
 ```
 
 ## State Model
 
 ```mermaid
 stateDiagram-v2
-    [*] --> PendingPayment: POST /orders
-    PendingPayment --> Paid: provider webhook succeeded
+    [*] --> PendingPayment: create order
+    PendingPayment --> Paid: payment succeeded
 ```
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Pending: POST /payments
-    Pending --> Processing: Worker accepted by provider
-    Processing --> Succeeded: provider webhook succeeded
+    [*] --> Pending: create payment
+    Pending --> Processing: provider accepted
+    Processing --> Succeeded: signed webhook
 ```
 
-## Quick Start
+## Tech Stack
 
-Start the full local stack:
+| Area | Technology |
+| --- | --- |
+| API | ASP.NET Core Web API, Swagger, ProblemDetails, Health Checks |
+| Data | EF Core, SQL Server, migrations, operational indexes |
+| Messaging | RabbitMQ, competing consumers, retry, DLQ |
+| Worker | .NET Worker Service |
+| Frontend | Vite React checkout simulator |
+| Observability | Serilog, Seq, Prometheus, Grafana, Tempo, OpenTelemetry |
+| Testing | k6 reliability and load scenarios |
+
+## Run Locally
 
 ```powershell
 docker compose up -d --build
 ```
 
-Open the checkout UI and complete the default flow:
-
-```text
-http://localhost:5173
-```
-
-The default local flow should end with:
-
-```text
-Order = Paid
-Payment = Succeeded
-```
-
-Useful local endpoints:
+Open:
 
 | Tool | URL |
 | --- | --- |
@@ -136,69 +109,37 @@ Useful local endpoints:
 | Seq | http://localhost:5341 |
 | Prometheus | http://localhost:9090 |
 | Grafana | http://localhost:3000 |
-| Tempo | http://localhost:3200 |
 
-Default local credentials:
+Expected result for the default checkout flow:
 
-| Tool | Credentials |
-| --- | --- |
-| RabbitMQ | `guest / guest` |
-| Grafana | `admin / admin` |
-
-Docker Compose normally applies EF Core migrations when the API starts in Development mode. Run migrations manually only when running the API outside Docker or when forcing a schema update:
-
-```powershell
-dotnet ef database update --project ReliablePaymentProcessing.Infrastructure --startup-project ReliablePaymentProcessing.Api
+```text
+Order = Paid
+Payment = Succeeded
 ```
-
-## Documentation
-
-| Document | Contents |
-| --- | --- |
-| [Local development and test scenarios](docs/local-development.md) | Docker Compose, URLs, k6 scenarios, Worker scaling |
-| [Reliability design](docs/reliability.md) | Idempotency, retry, DLQ, webhook security, state transitions |
-| [Observability](docs/observability.md) | Metrics, traces, logs, CorrelationId, Azure mapping |
-| [Azure target architecture](docs/azure-architecture.md) | Azure service mapping and migration phases |
 
 ## Project Structure
 
 ```text
-ReliablePaymentProcessing.Api             HTTP API, controllers, middleware, Swagger, metrics
-ReliablePaymentProcessing.Application     Use cases, service interfaces, contracts
-ReliablePaymentProcessing.Domain          Entities, statuses, state transition rules
-ReliablePaymentProcessing.Infrastructure  EF Core, repositories, RabbitMQ, provider client
-ReliablePaymentProcessing.Worker          RabbitMQ consumer and background processing
-ReliablePaymentProcessing.ProviderMock    Fake external payment provider and webhook sender
-ReliablePaymentProcessing.Web             React checkout simulation UI
-docker                          Prometheus, Grafana, and Tempo provisioning
-scripts                         k6 load and reliability tests
+ReliablePaymentProcessing.Api             HTTP API, webhooks, Swagger, metrics
+ReliablePaymentProcessing.Application     use cases, contracts, service abstractions
+ReliablePaymentProcessing.Domain          order/payment entities and state rules
+ReliablePaymentProcessing.Infrastructure  EF Core, RabbitMQ, provider client
+ReliablePaymentProcessing.Worker          background payment processing
+ReliablePaymentProcessing.ProviderMock    fake external provider and webhook sender
+ReliablePaymentProcessing.Web             React checkout simulator
+docker                                    observability stack
+scripts                                   k6 reliability scenarios
 ```
 
-## Current Capabilities
+## Verify
 
-| Category | Capabilities |
-| --- | --- |
-| Idempotency | Unique payment per `OrderId`, duplicate request returns existing payment |
-| Messaging | RabbitMQ buffering, Worker prefetch, local concurrency control, multi-worker scaling |
-| Failure handling | Fixed-count Worker retry, DLQ fallback, provider timeout and HTTP 500 simulation |
-| Webhooks | HMAC signature validation, timestamp tolerance, duplicate webhook safety, provider-side webhook retry |
-| Data operations | EF Core migrations, operational indexes on `(Status, CreatedAt)` |
-| Observability | Structured logs with `CorrelationId`, API metrics dashboard, OpenTelemetry traces with Tempo |
-| Azure readiness | Optional Azure Monitor / Application Insights trace export |
+```powershell
+dotnet build ReliablePaymentProcessing.slnx
+```
 
-## Roadmap
+Additional documentation:
 
-Near-term priorities:
-
-- Azure SQL deployment path
-- Azure Service Bus publisher/consumer implementation
-- Container Apps deployment for API, Worker, and ProviderMock
-- Optional operational dashboards for queue backlog and payment states
-
-Deferred intentionally:
-
-- Complex delayed retry topology
-- DLQ replay tooling
-- Redis distributed locking
-- Heavy CQRS/MediatR ceremony
-- Production payment provider integration
+- [Reliability design](docs/reliability.md)
+- [Local development](docs/local-development.md)
+- [Observability](docs/observability.md)
+- [Azure target architecture](docs/azure-architecture.md)
