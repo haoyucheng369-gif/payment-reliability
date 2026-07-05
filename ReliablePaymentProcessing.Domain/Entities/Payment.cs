@@ -26,14 +26,17 @@ public class Payment
 
     public void MarkProcessing()
     {
+        Fire(PaymentTrigger.Process);
     }
 
     public void MarkSucceeded()
     {
+        Fire(PaymentTrigger.Succeed);
     }
 
     public void MarkFailed()
     {
+        Fire(PaymentTrigger.Fail);
     }
 
     private void Fire(PaymentTrigger trigger)
